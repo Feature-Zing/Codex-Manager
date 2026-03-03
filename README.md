@@ -13,7 +13,14 @@
 本地桌面端 + 服务进程的 Codex 账号池管理器，用于统一管理账号、用量与平台 Key，并提供本地网关能力。
 
 ## 最近变更
-### 2026-03-01（最新）
+### 2026-03-03（v0.1.4，最新）
+- 账号管理页操作区整合为单一“账号操作”下拉菜单，替代右侧多按钮堆叠，界面更简洁。
+- 新增“一键移除不可用 Free 账号”：批量清理“不可用 + free 计划”账号，并返回扫描/跳过/删除统计。
+- 新增“导出用户”：支持选择本地目录并按“一个账号一个 JSON 文件”导出。
+- 导入兼容增强：支持 `tokens.*`、顶层 `*_token`、camelCase 字段（如 `accessToken/idToken/refreshToken`）自动识别。
+- 兼容旧 service：前端导入前会自动归一化顶层 token 格式，避免旧版后端报 `missing field: tokens`。
+
+### 2026-03-01（v0.1.3）
 - 设置页重构：改为单页聚合布局，新增“后台任务”配置区（轮询开关/间隔 + worker 参数），并补齐中文文案与悬浮提示。
 - 新增后台任务配置链路：前端 -> Tauri -> RPC 打通 `gateway/backgroundTasks/get|set`，可在设置页统一管理用量轮询、网关保活、令牌刷新轮询与 worker 参数。
 - 后台任务运行时行为增强：轮询类参数支持运行中热更新；`usageRefreshWorkers`、`httpWorkerFactor/httpWorkerMin`、`httpStreamWorkerFactor/httpStreamWorkerMin` 会提示“需重启 service 生效”。
@@ -224,7 +231,7 @@ pwsh -NoLogo -NoProfile -File scripts/rebuild.ps1 `
 用于一次性更新发版版本号，避免手改多个文件。
 
 ```powershell
-pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.3
+pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.4
 ```
 
 会同步更新：

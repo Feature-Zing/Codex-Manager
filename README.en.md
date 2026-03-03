@@ -13,7 +13,14 @@
 A local desktop + service toolkit for managing a Codex-compatible ChatGPT account pool, usage, and platform keys, with a built-in local gateway.
 
 ## Recent Changes
-### 2026-03-01 (latest)
+### 2026-03-03 (v0.1.4, latest)
+- Consolidated account action buttons into a single "Account Actions" dropdown to reduce toolbar clutter.
+- Added "Remove unavailable Free accounts": bulk cleanup for accounts matched as unavailable + free plan, with summary counts (scanned/skipped/deleted).
+- Added "Export users": choose a local folder and export one JSON file per account.
+- Import compatibility upgrade: supports `tokens.*`, flat top-level token fields, and camelCase variants (`accessToken/idToken/refreshToken`) with auto-detection.
+- Backward compatibility for older service builds: frontend now normalizes flat token payloads before import to avoid `missing field: tokens`.
+
+### 2026-03-01 (v0.1.3)
 - Settings page restructure: switched to a single-sheet layout, added a dedicated "Background Tasks" section (polling toggles/intervals + worker parameters), and improved in-page hints.
 - Added background-task config chain end-to-end: frontend -> Tauri -> RPC now supports `gateway/backgroundTasks/get|set`, so usage polling, gateway keepalive, token-refresh polling, and worker parameters can be managed from Settings.
 - Improved runtime behavior for background tasks: polling parameters can be hot-updated at runtime; `usageRefreshWorkers`, `httpWorkerFactor/httpWorkerMin`, and `httpStreamWorkerFactor/httpStreamWorkerMin` now clearly indicate "service restart required".
@@ -233,7 +240,7 @@ Parameters (with defaults):
 Use this to bump release version in one command instead of editing multiple files manually.
 
 ```powershell
-pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.3
+pwsh -NoLogo -NoProfile -File scripts/bump-version.ps1 -Version 0.1.4
 ```
 
 It updates:
