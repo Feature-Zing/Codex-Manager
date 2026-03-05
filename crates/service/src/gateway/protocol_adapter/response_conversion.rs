@@ -1,4 +1,5 @@
 use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
 
 use crate::gateway::request_helpers::is_html_content_type;
 
@@ -332,6 +333,133 @@ fn map_response_event_to_openai_chat_tool_chunk(value: &Value) -> Option<Value> 
     }
     chunk["choices"][0]["delta"]["tool_calls"] = Value::Array(vec![tool_call]);
     Some(chunk)
+}
+
+#[derive(Default)]
+struct AggregatedChatToolCall {
+    id: Option<String>,
+    name: Option<String>,
+    arguments: String,
+}
+
+fn merge_tool_call_arguments(existing: &mut String, fragment: &str) {
+    if fragment.is_empty() {
+        return;
+    }
+    if existing.is_empty() {
+        existing.push_str(fragment);
+        return;
+    }
+    if existing == fragment || existing.ends_with(fragment) || existing.starts_with(fragment) {
+        return;
+    }
+    if fragment.starts_with(existing.as_str()) {
+        *existing = fragment.to_string();
+        return;
+    }
+    existing.push_str(fragment);
+}
+
+fn merge_chat_tool_call_object(
+    tool_obj: &Map<String, Value>,
+    default_index: usize,
+    tool_calls: &mut BTreeMap<usize, AggregatedChatToolCall>,
+) {
+    let index = tool_obj
+        .get("index")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(default_index);
+    let entry = tool_calls.entry(index).or_default();
+    if let Some(id) = tool_obj
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        entry.id = Some(id.to_string());
+    }
+    if let Some(name) = tool_obj
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        entry.name = Some(name.to_string());
+    }
+    let Some(function_obj) = tool_obj.get("function").and_then(Value::as_object) else {
+        return;
+    };
+    if let Some(name) = function_obj
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        entry.name = Some(name.to_string());
+    }
+    if let Some(arguments) = function_obj.get("arguments") {
+        if let Some(raw) = arguments.as_str() {
+            merge_tool_call_arguments(&mut entry.arguments, raw);
+        } else if let Ok(serialized) = serde_json::to_string(arguments) {
+            merge_tool_call_arguments(&mut entry.arguments, serialized.as_str());
+        }
+    }
+}
+
+fn collect_chat_tool_calls_from_delta(
+    delta: &Map<String, Value>,
+    tool_calls: &mut BTreeMap<usize, AggregatedChatToolCall>,
+) {
+    let Some(items) = delta.get("tool_calls").and_then(Value::as_array) else {
+        return;
+    };
+    for (index, item) in items.iter().enumerate() {
+        let Some(tool_obj) = item.as_object() else {
+            continue;
+        };
+        merge_chat_tool_call_object(tool_obj, index, tool_calls);
+    }
+}
+
+fn collect_chat_tool_calls_from_message(
+    message: &Map<String, Value>,
+    tool_calls: &mut BTreeMap<usize, AggregatedChatToolCall>,
+) {
+    let Some(items) = message.get("tool_calls").and_then(Value::as_array) else {
+        return;
+    };
+    for (index, item) in items.iter().enumerate() {
+        let Some(tool_obj) = item.as_object() else {
+            continue;
+        };
+        merge_chat_tool_call_object(tool_obj, index, tool_calls);
+    }
+}
+
+fn build_openai_chat_tool_calls(tool_calls: &BTreeMap<usize, AggregatedChatToolCall>) -> Vec<Value> {
+    let mut out = Vec::new();
+    for (index, call) in tool_calls {
+        let id = call
+            .id
+            .clone()
+            .unwrap_or_else(|| format!("call_{index}"));
+        let name = call.name.clone().unwrap_or_else(|| "tool".to_string());
+        let arguments = if call.arguments.is_empty() {
+            "{}".to_string()
+        } else {
+            call.arguments.clone()
+        };
+        out.push(json!({
+            "id": id,
+            "type": "function",
+            "function": {
+                "name": name,
+                "arguments": arguments
+            }
+        }));
+    }
+    out
 }
 
 pub(super) fn convert_openai_completions_stream_chunk(value: &Value) -> Option<Value> {
@@ -953,6 +1081,7 @@ fn convert_openai_sse_to_chat_completions_json(
     let mut finish_reason: Option<Value> = None;
     let mut usage: Option<Value> = None;
     let mut completed_response: Option<Value> = None;
+    let mut tool_calls_by_index = BTreeMap::<usize, AggregatedChatToolCall>::new();
     let mut data_lines = Vec::<String>::new();
     let mut saw_text_delta = false;
 
@@ -964,6 +1093,7 @@ fn convert_openai_sse_to_chat_completions_json(
                        finish_reason: &mut Option<Value>,
                        usage: &mut Option<Value>,
                        completed_response: &mut Option<Value>,
+                       tool_calls_by_index: &mut BTreeMap<usize, AggregatedChatToolCall>,
                        saw_text_delta: &mut bool| {
         if lines.is_empty() {
             return;
@@ -1039,10 +1169,11 @@ fn convert_openai_sse_to_chat_completions_json(
         }
         if let Some(choices) = chunk.get("choices").and_then(Value::as_array) {
             for choice in choices {
-                if let Some(delta) = choice.get("delta") {
+                if let Some(delta) = choice.get("delta").and_then(Value::as_object) {
                     if let Some(text_piece) = delta.get("content").and_then(Value::as_str) {
                         content.push_str(text_piece);
                     }
+                    collect_chat_tool_calls_from_delta(delta, tool_calls_by_index);
                 }
                 if let Some(reason) = choice.get("finish_reason") {
                     if !reason.is_null() {
@@ -1068,6 +1199,7 @@ fn convert_openai_sse_to_chat_completions_json(
                 &mut finish_reason,
                 &mut usage,
                 &mut completed_response,
+                &mut tool_calls_by_index,
                 &mut saw_text_delta,
             );
         }
@@ -1081,6 +1213,7 @@ fn convert_openai_sse_to_chat_completions_json(
         &mut finish_reason,
         &mut usage,
         &mut completed_response,
+        &mut tool_calls_by_index,
         &mut saw_text_delta,
     );
 
@@ -1112,6 +1245,9 @@ fn convert_openai_sse_to_chat_completions_json(
             {
                 if let Some(message) = choice.get("message") {
                     content = extract_chat_content_text(message.get("content"));
+                    if let Some(message_obj) = message.as_object() {
+                        collect_chat_tool_calls_from_message(message_obj, &mut tool_calls_by_index);
+                    }
                 }
                 if finish_reason.is_none() {
                     if let Some(v) = choice.get("finish_reason") {
@@ -1121,6 +1257,16 @@ fn convert_openai_sse_to_chat_completions_json(
                     }
                 }
             }
+        }
+    }
+    let mapped_tool_calls = build_openai_chat_tool_calls(&tool_calls_by_index);
+    if !mapped_tool_calls.is_empty() {
+        let should_force_tool_calls_reason = finish_reason
+            .as_ref()
+            .and_then(Value::as_str)
+            .is_none_or(|reason| reason.eq_ignore_ascii_case("stop"));
+        if should_force_tool_calls_reason {
+            finish_reason = Some(Value::String("tool_calls".to_string()));
         }
     }
 
@@ -1138,6 +1284,15 @@ fn convert_openai_sse_to_chat_completions_json(
             "finish_reason": finish_reason.unwrap_or(Value::String("stop".to_string()))
         }]
     });
+    if !mapped_tool_calls.is_empty() {
+        out["choices"][0]["message"]["tool_calls"] = Value::Array(mapped_tool_calls);
+        if out["choices"][0]["message"]["content"]
+            .as_str()
+            .is_some_and(|value| value.is_empty())
+        {
+            out["choices"][0]["message"]["content"] = Value::Null;
+        }
+    }
     if let Some(usage) = usage {
         if let Some(out_obj) = out.as_object_mut() {
             out_obj.insert("usage".to_string(), usage);

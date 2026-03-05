@@ -311,6 +311,128 @@ data: [DONE]
 }
 
 #[test]
+fn openai_chat_stream_response_completed_only_preserves_tool_calls() {
+    let upstream = br#"data: {"type":"response.completed","response":{"id":"resp_tool_only","created":1700000005,"model":"gpt-5.3-codex","output":[{"type":"function_call","call_id":"call_tool_only","name":"read_file","arguments":"{\"path\":\"README.md\"}"}],"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content")),
+        Some(&serde_json::Value::Null)
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("id"))
+            .and_then(serde_json::Value::as_str),
+        Some("call_tool_only")
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("function"))
+            .and_then(|function| function.get("name"))
+            .and_then(serde_json::Value::as_str),
+        Some("read_file")
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("function"))
+            .and_then(|function| function.get("arguments"))
+            .and_then(serde_json::Value::as_str),
+        Some("{\"path\":\"README.md\"}")
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(serde_json::Value::as_str),
+        Some("tool_calls")
+    );
+}
+
+#[test]
+fn openai_chat_stream_response_delta_only_preserves_tool_calls() {
+    let upstream = br#"data: {"type":"response.output_item.added","response_id":"resp_tool_delta","created":1700000006,"model":"gpt-5.3-codex","output_index":0,"item":{"type":"function_call","call_id":"call_tool_delta","name":"read_file"}}
+
+data: {"type":"response.function_call_arguments.delta","response_id":"resp_tool_delta","created":1700000006,"model":"gpt-5.3-codex","output_index":0,"delta":"{\"path\":\"REA"}
+
+data: {"type":"response.function_call_arguments.delta","response_id":"resp_tool_delta","created":1700000006,"model":"gpt-5.3-codex","output_index":0,"delta":"DME.md\"}"}
+
+data: {"type":"response.completed","response":{"id":"resp_tool_delta","created":1700000006,"model":"gpt-5.3-codex","usage":{"input_tokens":8,"output_tokens":2,"total_tokens":10}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("id"))
+            .and_then(serde_json::Value::as_str),
+        Some("call_tool_delta")
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("tool_calls"))
+            .and_then(|tool_calls| tool_calls.get(0))
+            .and_then(|tool_call| tool_call.get("function"))
+            .and_then(|function| function.get("arguments"))
+            .and_then(serde_json::Value::as_str),
+        Some("{\"path\":\"README.md\"}")
+    );
+    assert_eq!(
+        value
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(serde_json::Value::as_str),
+        Some("tool_calls")
+    );
+}
+
+#[test]
 fn openai_chat_stream_chunk_maps_function_call_argument_delta() {
     let value = serde_json::json!({
         "type": "response.function_call_arguments.delta",
