@@ -74,6 +74,91 @@ fn openai_chat_completions_forward_service_tier_to_responses() {
 }
 
 #[test]
+fn openai_chat_completions_forward_text_verbosity_to_responses() {
+    let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}],"verbosity":"low","response_format":{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}}}"#.to_vec();
+    let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
+        .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert_eq!(
+        value
+            .get("text")
+            .and_then(|text| text.get("verbosity"))
+            .and_then(serde_json::Value::as_str),
+        Some("low")
+    );
+    assert_eq!(
+        value
+            .get("text")
+            .and_then(|text| text.get("format"))
+            .and_then(|format| format.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("json_schema")
+    );
+}
+
+#[test]
+fn openai_chat_completions_map_dynamic_tools_to_responses_tools() {
+    let original_tool_name =
+        "mcp__dynamic_tool_server_namespace_for_codex_manager_gateway_alignment__very_long_tool_name";
+    let body = serde_json::json!({
+        "model": "gpt-5.3-codex",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "dynamic_tools": [{
+            "name": original_tool_name,
+            "description": "dynamic tool",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                },
+                "required": ["city"]
+            }
+        }]
+    });
+    let adapted = adapt_request_for_protocol(
+        PROTOCOL_OPENAI_COMPAT,
+        "/v1/chat/completions",
+        serde_json::to_vec(&body).expect("serialize body"),
+    )
+    .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    let shortened_name = value
+        .get("tools")
+        .and_then(|tools| tools.get(0))
+        .and_then(|tool| tool.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .expect("tools[0].name")
+        .to_string();
+    assert_ne!(shortened_name, original_tool_name);
+    assert!(shortened_name.len() <= 64);
+    assert_eq!(
+        adapted.tool_name_restore_map.get(&shortened_name),
+        Some(&original_tool_name.to_string())
+    );
+    assert_eq!(
+        value
+            .get("tools")
+            .and_then(|tools| tools.get(0))
+            .and_then(|tool| tool.get("description"))
+            .and_then(serde_json::Value::as_str),
+        Some("dynamic tool")
+    );
+    assert_eq!(
+        value
+            .get("tools")
+            .and_then(|tools| tools.get(0))
+            .and_then(|tool| tool.get("parameters"))
+            .and_then(|parameters| parameters.get("properties"))
+            .and_then(|properties| properties.get("city"))
+            .and_then(|city| city.get("type"))
+            .and_then(serde_json::Value::as_str),
+        Some("string")
+    );
+}
+
+#[test]
 fn openai_chat_completions_shortens_tool_names_and_builds_restore_map() {
     let original_tool_name =
         "mcp__tool_server_namespace_for_codex_manager_gateway_adapter_alignment__very_long_tool_operation_name";

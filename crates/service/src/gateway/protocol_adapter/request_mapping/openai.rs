@@ -51,6 +51,20 @@ fn collect_openai_tool_names(obj: &serde_json::Map<String, Value>) -> Vec<String
         }
     }
 
+    if let Some(dynamic_tools) = get_dynamic_tools_array(obj) {
+        for dynamic_tool in dynamic_tools {
+            let Some(name) = dynamic_tool
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            names.push(name.to_string());
+        }
+    }
+
     if let Some(name) = obj
         .get("tool_choice")
         .and_then(Value::as_object)
@@ -101,6 +115,44 @@ fn collect_openai_tool_names(obj: &serde_json::Map<String, Value>) -> Vec<String
     }
 
     names
+}
+
+fn get_dynamic_tools_array<'a>(obj: &'a serde_json::Map<String, Value>) -> Option<&'a Vec<Value>> {
+    obj.get("dynamic_tools")
+        .or_else(|| obj.get("dynamicTools"))
+        .and_then(Value::as_array)
+}
+
+fn map_dynamic_tool_to_responses_tool(
+    tool_obj: &serde_json::Map<String, Value>,
+    tool_name_map: &BTreeMap<String, String>,
+) -> Option<Value> {
+    let name = tool_obj
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let mapped_name = shorten_openai_tool_name_with_map(name, tool_name_map);
+    let description = tool_obj
+        .get("description")
+        .cloned()
+        .unwrap_or_else(|| Value::String(String::new()));
+    let parameters = tool_obj
+        .get("input_schema")
+        .or_else(|| tool_obj.get("inputSchema"))
+        .or_else(|| tool_obj.get("parameters"))
+        .cloned()
+        .unwrap_or_else(|| json!({ "type": "object", "properties": {} }));
+
+    let mut mapped = serde_json::Map::new();
+    mapped.insert("type".to_string(), Value::String("function".to_string()));
+    mapped.insert("name".to_string(), Value::String(mapped_name));
+    mapped.insert("description".to_string(), description);
+    mapped.insert("parameters".to_string(), parameters);
+    if let Some(strict) = tool_obj.get("strict") {
+        mapped.insert("strict".to_string(), strict.clone());
+    }
+    Some(Value::Object(mapped))
 }
 
 fn build_openai_tool_name_map(obj: &serde_json::Map<String, Value>) -> BTreeMap<String, String> {
@@ -289,47 +341,64 @@ fn map_openai_chat_tools_to_responses(
     obj: &serde_json::Map<String, Value>,
     tool_name_map: &BTreeMap<String, String>,
 ) -> Option<Vec<Value>> {
-    let tools = obj.get("tools")?.as_array()?;
     let mut out = Vec::new();
-    for tool in tools {
-        let Some(tool_obj) = tool.as_object() else {
-            continue;
-        };
-        let tool_type = tool_obj
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if tool_type != "function" {
-            out.push(tool.clone());
-            continue;
+    if let Some(tools) = obj.get("tools").and_then(Value::as_array) {
+        for tool in tools {
+            let Some(tool_obj) = tool.as_object() else {
+                continue;
+            };
+            let tool_type = tool_obj
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if tool_type != "function" {
+                out.push(tool.clone());
+                continue;
+            }
+            let Some(function) = tool_obj.get("function").and_then(Value::as_object) else {
+                continue;
+            };
+            let Some(name) = function
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let mapped_name = shorten_openai_tool_name_with_map(name, tool_name_map);
+            let mut mapped = serde_json::Map::new();
+            mapped.insert("type".to_string(), Value::String("function".to_string()));
+            mapped.insert("name".to_string(), Value::String(mapped_name));
+            if let Some(description) = function.get("description") {
+                mapped.insert("description".to_string(), description.clone());
+            }
+            if let Some(parameters) = function.get("parameters") {
+                mapped.insert("parameters".to_string(), parameters.clone());
+            }
+            if let Some(strict) = function.get("strict") {
+                mapped.insert("strict".to_string(), strict.clone());
+            }
+            out.push(Value::Object(mapped));
         }
-        let Some(function) = tool_obj.get("function").and_then(Value::as_object) else {
-            continue;
-        };
-        let Some(name) = function
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            continue;
-        };
-        let mapped_name = shorten_openai_tool_name_with_map(name, tool_name_map);
-        let mut mapped = serde_json::Map::new();
-        mapped.insert("type".to_string(), Value::String("function".to_string()));
-        mapped.insert("name".to_string(), Value::String(mapped_name));
-        if let Some(description) = function.get("description") {
-            mapped.insert("description".to_string(), description.clone());
-        }
-        if let Some(parameters) = function.get("parameters") {
-            mapped.insert("parameters".to_string(), parameters.clone());
-        }
-        if let Some(strict) = function.get("strict") {
-            mapped.insert("strict".to_string(), strict.clone());
-        }
-        out.push(Value::Object(mapped));
     }
-    Some(out)
+
+    if let Some(dynamic_tools) = get_dynamic_tools_array(obj) {
+        for dynamic_tool in dynamic_tools {
+            let Some(tool_obj) = dynamic_tool.as_object() else {
+                continue;
+            };
+            if let Some(mapped_tool) = map_dynamic_tool_to_responses_tool(tool_obj, tool_name_map) {
+                out.push(mapped_tool);
+            }
+        }
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 fn map_openai_chat_tool_choice_to_responses(
@@ -356,6 +425,37 @@ fn map_openai_chat_tool_choice_to_responses(
         "type": "function",
         "name": mapped_name
     }))
+}
+
+fn map_openai_chat_text_controls_to_responses(
+    obj: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let mut mapped = obj
+        .get("text")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    if let Some(verbosity) = obj
+        .get("verbosity")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        mapped.insert(
+            "verbosity".to_string(),
+            Value::String(verbosity.to_string()),
+        );
+    }
+    if let Some(format) = obj.get("response_format").cloned() {
+        mapped.insert("format".to_string(), format);
+    }
+
+    if mapped.is_empty() {
+        None
+    } else {
+        Some(Value::Object(mapped))
+    }
 }
 
 pub(crate) fn convert_openai_chat_completions_request(
@@ -445,8 +545,8 @@ pub(crate) fn convert_openai_chat_completions_request(
     {
         out.insert("tool_choice".to_string(), tool_choice);
     }
-    if let Some(text) = obj.get("response_format").cloned() {
-        out.insert("text".to_string(), json!({ "format": text }));
+    if let Some(text) = map_openai_chat_text_controls_to_responses(obj) {
+        out.insert("text".to_string(), text);
     }
 
     let tool_name_restore_map = build_openai_tool_name_restore_map(&tool_name_map);

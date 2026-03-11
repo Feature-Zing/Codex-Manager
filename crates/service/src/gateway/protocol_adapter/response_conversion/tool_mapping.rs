@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 
 use super::{stream_event_created, stream_event_model, stream_event_response_id};
 
+pub(super) fn is_openai_chat_tool_item_type(item_type: &str) -> bool {
+    matches!(item_type, "function_call" | "custom_tool_call")
+}
+
 // 中文注释：请求侧可能把超长工具名缩短，这里在响应映射时按 restore_map 还原原始名称。
 pub(super) fn restore_openai_tool_name(
     name: &str,
@@ -63,7 +67,8 @@ pub(super) fn map_response_event_to_openai_chat_tool_chunk(
                 .get("item")
                 .or_else(|| value.get("output_item"))
                 .and_then(Value::as_object)?;
-            if item.get("type").and_then(Value::as_str) != Some("function_call") {
+            let item_type = item.get("type").and_then(Value::as_str).unwrap_or_default();
+            if !is_openai_chat_tool_item_type(item_type) {
                 return None;
             }
             let output_index = value
@@ -86,6 +91,7 @@ pub(super) fn map_response_event_to_openai_chat_tool_chunk(
                 String::new()
             } else {
                 item.get("arguments")
+                    .or_else(|| item.get("input"))
                     .map(|arguments| {
                         arguments.as_str().map(str::to_string).unwrap_or_else(|| {
                             serde_json::to_string(arguments).unwrap_or_else(|_| "{}".to_string())

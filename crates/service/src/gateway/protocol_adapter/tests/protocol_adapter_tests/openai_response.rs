@@ -135,6 +135,135 @@ fn openai_chat_response_is_converted_from_openclaw_tool_call_json() {
 }
 
 #[test]
+fn openai_chat_response_is_converted_from_custom_tool_call_json() {
+    let upstream = br#"{
+        "id":"resp_custom_tool_1",
+        "object":"response",
+        "created":1700000012,
+        "model":"gpt-5.3-codex",
+        "output":[{"type":"custom_tool_call","call_id":"call_exec_1","name":"exec","input":"{\"cmd\":\"pwd\"}"}],
+        "usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["id"],
+        "call_exec_1"
+    );
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+        "exec"
+    );
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
+        "{\"cmd\":\"pwd\"}"
+    );
+    assert_eq!(value["choices"][0]["finish_reason"], "tool_calls");
+}
+
+#[test]
+fn openai_chat_response_is_converted_from_web_search_call_json() {
+    let upstream = br#"{
+        "id":"resp_web_search_1",
+        "object":"response",
+        "created":1700000013,
+        "model":"gpt-5.3-codex",
+        "output":[{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"weather seattle"}}],
+        "usage":{"input_tokens":9,"output_tokens":2,"total_tokens":11}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["content"],
+        "[web_search_call] status=completed query=weather seattle"
+    );
+}
+
+#[test]
+fn openai_chat_response_is_converted_from_image_generation_call_json() {
+    let upstream = br#"{
+        "id":"resp_image_1",
+        "object":"response",
+        "created":1700000014,
+        "model":"gpt-5.3-codex",
+        "output":[{"type":"image_generation_call","id":"ig_1","status":"completed","revised_prompt":"A small blue square","result":"Zm9v"}],
+        "usage":{"input_tokens":9,"output_tokens":2,"total_tokens":11}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["content"],
+        "[image_generation_call] status=completed prompt=A small blue square result_bytes=4"
+    );
+}
+
+#[test]
+fn openai_chat_response_is_converted_from_local_shell_call_json() {
+    let upstream = br#"{
+        "id":"resp_shell_1",
+        "object":"response",
+        "created":1700000015,
+        "model":"gpt-5.3-codex",
+        "output":[{"type":"local_shell_call","call_id":"shell_1","status":"completed","action":{"type":"exec","command":["/bin/echo","hello"],"working_directory":"/tmp"}}],
+        "usage":{"input_tokens":9,"output_tokens":2,"total_tokens":11}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["content"],
+        "[local_shell_call] status=completed command=/bin/echo hello cwd=/tmp"
+    );
+}
+
+#[test]
+fn openai_chat_response_is_converted_from_custom_tool_call_output_json() {
+    let upstream = br#"{
+        "id":"resp_custom_tool_output_1",
+        "object":"response",
+        "created":1700000016,
+        "model":"gpt-5.3-codex",
+        "output":[{"type":"custom_tool_call_output","call_id":"call_exec_1","output":"command finished"}],
+        "usage":{"input_tokens":9,"output_tokens":2,"total_tokens":11}
+    }"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("application/json"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["content"],
+        "command finished"
+    );
+}
+
+#[test]
 fn openai_chat_stream_response_is_collapsed_to_chat_completion_json() {
     let upstream = br#"data: {"type":"response.output_text.delta","response_id":"resp_1","created":1700000001,"model":"gpt-5.3-codex","delta":"hello "}
 
@@ -375,6 +504,63 @@ data: [DONE]
             .and_then(|choice| choice.get("finish_reason"))
             .and_then(serde_json::Value::as_str),
         Some("tool_calls")
+    );
+}
+
+#[test]
+fn openai_chat_stream_response_delta_only_preserves_custom_tool_calls() {
+    let upstream = br#"data: {"type":"response.output_item.added","response_id":"resp_custom_tool_delta","created":1700000007,"model":"gpt-5.3-codex","output_index":0,"item":{"type":"custom_tool_call","call_id":"call_exec_delta","name":"exec"}}
+
+data: {"type":"response.output_item.done","response_id":"resp_custom_tool_delta","created":1700000007,"model":"gpt-5.3-codex","output_index":0,"item":{"type":"custom_tool_call","call_id":"call_exec_delta","name":"exec","input":"{\"cmd\":\"pwd\"}"}}
+
+data: {"type":"response.completed","response":{"id":"resp_custom_tool_delta","created":1700000007,"model":"gpt-5.3-codex","usage":{"input_tokens":8,"output_tokens":2,"total_tokens":10}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["id"],
+        "call_exec_delta"
+    );
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+        "exec"
+    );
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
+        "{\"cmd\":\"pwd\"}"
+    );
+    assert_eq!(value["choices"][0]["finish_reason"], "tool_calls");
+}
+
+#[test]
+fn openai_chat_stream_response_outputs_web_search_summary_text() {
+    let upstream = br#"data: {"type":"response.output_item.done","response_id":"resp_web_search_stream","created":1700000008,"model":"gpt-5.3-codex","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"weather seattle"}}}
+
+data: {"type":"response.completed","response":{"id":"resp_web_search_stream","created":1700000008,"model":"gpt-5.3-codex","usage":{"input_tokens":8,"output_tokens":2,"total_tokens":10}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::OpenAIChatCompletionsJson,
+        Some("text/event-stream"),
+        upstream,
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(
+        value["choices"][0]["message"]["content"],
+        "[web_search_call] status=completed query=weather seattle"
     );
 }
 

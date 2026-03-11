@@ -427,6 +427,49 @@ fn collect_non_stream_json_from_sse_bytes_backfills_response_output_from_deltas(
 }
 
 #[test]
+fn collect_non_stream_json_from_sse_bytes_backfills_reasoning_output_items() {
+    let sse = concat!(
+        "data: {\"type\":\"response.output_item.done\",\"response_id\":\"resp_reason_1\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"先读配置\"}],\"encrypted_content\":\"sig_reason_1\"}}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_reason_1\",\"created\":5,\"model\":\"gpt-5.3-codex\",\"usage\":{\"input_tokens\":4,\"output_tokens\":2,\"total_tokens\":6}}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let (body, usage) = collect_non_stream_json_from_sse_bytes(sse.as_bytes());
+    let body = body.expect("synthesized response json");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse synthesized body");
+    assert_eq!(value["id"], "resp_reason_1");
+    assert_eq!(value["output"][0]["type"], "reasoning");
+    assert_eq!(value["output"][0]["summary"][0]["text"], "先读配置");
+    assert_eq!(value["output"][0]["encrypted_content"], "sig_reason_1");
+    assert!(value.get("output_text").is_none());
+    assert_eq!(usage.input_tokens, Some(4));
+    assert_eq!(usage.output_tokens, Some(2));
+    assert_eq!(usage.total_tokens, Some(6));
+}
+
+#[test]
+fn collect_non_stream_json_from_sse_bytes_backfills_function_call_output_items() {
+    let sse = concat!(
+        "data: {\"type\":\"response.output_item.added\",\"response_id\":\"resp_tool_agg_1\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_read_1\",\"name\":\"read_file\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_tool_agg_1\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\\\"REA\"}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"response_id\":\"resp_tool_agg_1\",\"output_index\":0,\"delta\":\"DME.md\\\"}\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_tool_agg_1\",\"created\":6,\"model\":\"gpt-5.3-codex\",\"usage\":{\"input_tokens\":6,\"output_tokens\":1,\"total_tokens\":7}}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let (body, usage) = collect_non_stream_json_from_sse_bytes(sse.as_bytes());
+    let body = body.expect("synthesized response json");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse synthesized body");
+    assert_eq!(value["id"], "resp_tool_agg_1");
+    assert_eq!(value["output"][0]["type"], "function_call");
+    assert_eq!(value["output"][0]["call_id"], "call_read_1");
+    assert_eq!(value["output"][0]["name"], "read_file");
+    assert_eq!(value["output"][0]["arguments"], "{\"path\":\"README.md\"}");
+    assert!(value.get("output_text").is_none());
+    assert_eq!(usage.input_tokens, Some(6));
+    assert_eq!(usage.output_tokens, Some(1));
+    assert_eq!(usage.total_tokens, Some(7));
+}
+
+#[test]
 fn parse_sse_frame_json_infers_type_from_event_name() {
     let frame_lines = vec![
         "event: response.output_text.delta\n".to_string(),

@@ -245,12 +245,51 @@ fn build_anthropic_message_from_responses(
                     }));
                     has_tool_use = true;
                 }
+                "custom_tool_call" => {
+                    let tool_use_id = item_obj
+                        .get("call_id")
+                        .or_else(|| item_obj.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("toolu_{}", content_blocks.len()));
+                    let Some(function_name) = item_obj
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                    else {
+                        continue;
+                    };
+                    let function_name =
+                        restore_openai_tool_name(function_name, tool_name_restore_map);
+                    let input = extract_function_call_input_object(item_obj);
+                    content_blocks.push(json!({
+                        "type": "tool_use",
+                        "id": tool_use_id,
+                        "name": function_name,
+                        "input": input,
+                    }));
+                    has_tool_use = true;
+                }
+                "function_call_output" | "custom_tool_call_output" => {
+                    if let Some(text) = extract_response_item_output_text(item_obj) {
+                        if push_anthropic_text_block(&mut content_blocks, text.as_str()) {
+                            saw_message_text = true;
+                        }
+                    }
+                }
                 "reasoning" => {
                     if let Some(block) = map_responses_reasoning_item_to_anthropic(item_obj) {
                         content_blocks.push(block);
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some(summary) = summarize_special_response_item_text(item_obj) {
+                        if push_anthropic_text_block(&mut content_blocks, summary.as_str()) {
+                            saw_message_text = true;
+                        }
+                    }
+                }
             }
         }
     }
@@ -332,6 +371,201 @@ fn push_anthropic_text_block(content_blocks: &mut Vec<Value>, text: &str) -> boo
         "text": trimmed,
     }));
     true
+}
+
+pub(super) fn summarize_special_response_item_text(
+    item_obj: &serde_json::Map<String, Value>,
+) -> Option<String> {
+    let item_type = item_obj
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    match item_type {
+        "web_search_call" => summarize_web_search_call(item_obj),
+        "image_generation_call" => summarize_image_generation_call(item_obj),
+        "local_shell_call" => summarize_local_shell_call(item_obj),
+        _ => None,
+    }
+}
+
+fn extract_response_item_output_text(item_obj: &serde_json::Map<String, Value>) -> Option<String> {
+    fn collect_output(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::String(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    out.push(trimmed.to_string());
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    collect_output(item, out);
+                }
+            }
+            Value::Object(map) => {
+                if let Some(text) = map.get("text").and_then(Value::as_str) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        out.push(trimmed.to_string());
+                    }
+                }
+                if let Some(output) = map.get("output") {
+                    collect_output(output, out);
+                }
+                if let Some(content) = map.get("content") {
+                    collect_output(content, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut parts = Vec::new();
+    if let Some(output) = item_obj.get("output") {
+        collect_output(output, &mut parts);
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+fn summarize_web_search_call(item_obj: &serde_json::Map<String, Value>) -> Option<String> {
+    let status = item_obj
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    let action = item_obj.get("action").and_then(Value::as_object);
+    let summary = match action
+        .and_then(|action| action.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "search" => {
+            let query = action
+                .and_then(|action| action.get("query"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let queries = action
+                .and_then(|action| action.get("queries"))
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty());
+            if let Some(query) = query {
+                format!("[web_search_call] status={status} query={query}")
+            } else if let Some(queries) = queries {
+                format!(
+                    "[web_search_call] status={status} queries={}",
+                    queries.join(" | ")
+                )
+            } else {
+                format!("[web_search_call] status={status}")
+            }
+        }
+        "open_page" => {
+            let url = action
+                .and_then(|action| action.get("url"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            url.map_or_else(
+                || format!("[web_search_call] status={status} action=open_page"),
+                |url| format!("[web_search_call] status={status} open_page={url}"),
+            )
+        }
+        "find_in_page" => {
+            let url = action
+                .and_then(|action| action.get("url"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("-");
+            let pattern = action
+                .and_then(|action| action.get("pattern"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("-");
+            format!("[web_search_call] status={status} find_in_page url={url} pattern={pattern}")
+        }
+        _ => format!("[web_search_call] status={status}"),
+    };
+    Some(summary)
+}
+
+fn summarize_image_generation_call(item_obj: &serde_json::Map<String, Value>) -> Option<String> {
+    let status = item_obj
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    let revised_prompt = item_obj
+        .get("revised_prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let result_hint = item_obj
+        .get("result")
+        .and_then(Value::as_str)
+        .map(str::len)
+        .filter(|len| *len > 0);
+    let mut parts = vec![format!("[image_generation_call] status={status}")];
+    if let Some(prompt) = revised_prompt {
+        parts.push(format!("prompt={prompt}"));
+    }
+    if let Some(len) = result_hint {
+        parts.push(format!("result_bytes={len}"));
+    }
+    Some(parts.join(" "))
+}
+
+fn summarize_local_shell_call(item_obj: &serde_json::Map<String, Value>) -> Option<String> {
+    let status = item_obj
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown");
+    let action = item_obj.get("action").and_then(Value::as_object);
+    let command = action
+        .and_then(|action| action.get("command"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+    let working_directory = action
+        .and_then(|action| action.get("working_directory"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let mut parts = vec![format!("[local_shell_call] status={status}")];
+    if let Some(command) = command {
+        parts.push(format!("command={}", command.join(" ")));
+    }
+    if let Some(working_directory) = working_directory {
+        parts.push(format!("cwd={working_directory}"));
+    }
+    Some(parts.join(" "))
 }
 
 fn map_responses_reasoning_item_to_anthropic(

@@ -205,6 +205,197 @@ fn anthropic_json_response_restores_shortened_tool_name() {
 }
 
 #[test]
+fn anthropic_json_response_maps_custom_tool_call_to_tool_use() {
+    let upstream = serde_json::json!({
+        "id": "resp_custom_tool_anthropic_1",
+        "object": "response",
+        "created": 1700001201,
+        "model": "gpt-5.3-codex",
+        "output": [{
+            "type": "custom_tool_call",
+            "call_id": "call_exec_1",
+            "name": "exec",
+            "input": "{\"cmd\":\"pwd\"}"
+        }],
+        "usage": {"input_tokens": 4, "output_tokens": 2, "total_tokens": 6}
+    });
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicJson,
+        Some("application/json"),
+        &serde_json::to_vec(&upstream).expect("serialize upstream"),
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["content"][0]["type"], "tool_use");
+    assert_eq!(value["content"][0]["id"], "call_exec_1");
+    assert_eq!(value["content"][0]["name"], "exec");
+    assert_eq!(value["content"][0]["input"]["cmd"], "pwd");
+    assert_eq!(value["stop_reason"], "tool_use");
+}
+
+#[test]
+fn anthropic_json_response_maps_web_search_call_to_text_block() {
+    let upstream = serde_json::json!({
+        "id": "resp_web_search_anthropic_1",
+        "object": "response",
+        "created": 1700001202,
+        "model": "gpt-5.3-codex",
+        "output": [{
+            "type": "web_search_call",
+            "id": "ws_1",
+            "status": "completed",
+            "action": { "type": "search", "query": "weather seattle" }
+        }],
+        "usage": {"input_tokens": 4, "output_tokens": 2, "total_tokens": 6}
+    });
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicJson,
+        Some("application/json"),
+        &serde_json::to_vec(&upstream).expect("serialize upstream"),
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["content"][0]["type"], "text");
+    assert_eq!(
+        value["content"][0]["text"],
+        "[web_search_call] status=completed query=weather seattle"
+    );
+}
+
+#[test]
+fn anthropic_json_response_maps_image_generation_call_to_text_block() {
+    let upstream = serde_json::json!({
+        "id": "resp_image_anthropic_1",
+        "object": "response",
+        "created": 1700001203,
+        "model": "gpt-5.3-codex",
+        "output": [{
+            "type": "image_generation_call",
+            "id": "ig_1",
+            "status": "completed",
+            "revised_prompt": "A small blue square",
+            "result": "Zm9v"
+        }],
+        "usage": {"input_tokens": 4, "output_tokens": 2, "total_tokens": 6}
+    });
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicJson,
+        Some("application/json"),
+        &serde_json::to_vec(&upstream).expect("serialize upstream"),
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["content"][0]["type"], "text");
+    assert_eq!(
+        value["content"][0]["text"],
+        "[image_generation_call] status=completed prompt=A small blue square result_bytes=4"
+    );
+}
+
+#[test]
+fn anthropic_json_response_maps_local_shell_call_to_text_block() {
+    let upstream = serde_json::json!({
+        "id": "resp_shell_anthropic_1",
+        "object": "response",
+        "created": 1700001204,
+        "model": "gpt-5.3-codex",
+        "output": [{
+            "type": "local_shell_call",
+            "call_id": "shell_1",
+            "status": "completed",
+            "action": {
+                "type": "exec",
+                "command": ["/bin/echo", "hello"],
+                "working_directory": "/tmp"
+            }
+        }],
+        "usage": {"input_tokens": 4, "output_tokens": 2, "total_tokens": 6}
+    });
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicJson,
+        Some("application/json"),
+        &serde_json::to_vec(&upstream).expect("serialize upstream"),
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["content"][0]["type"], "text");
+    assert_eq!(
+        value["content"][0]["text"],
+        "[local_shell_call] status=completed command=/bin/echo hello cwd=/tmp"
+    );
+}
+
+#[test]
+fn anthropic_json_response_maps_custom_tool_call_output_to_text_block() {
+    let upstream = serde_json::json!({
+        "id": "resp_custom_tool_output_anthropic_1",
+        "object": "response",
+        "created": 1700001205,
+        "model": "gpt-5.3-codex",
+        "output": [{
+            "type": "custom_tool_call_output",
+            "call_id": "call_exec_1",
+            "output": "command finished"
+        }],
+        "usage": {"input_tokens": 4, "output_tokens": 2, "total_tokens": 6}
+    });
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicJson,
+        Some("application/json"),
+        &serde_json::to_vec(&upstream).expect("serialize upstream"),
+    )
+    .expect("convert response");
+    let value: serde_json::Value = serde_json::from_slice(&body).expect("parse converted body");
+    assert_eq!(content_type, "application/json");
+    assert_eq!(value["content"][0]["type"], "text");
+    assert_eq!(value["content"][0]["text"], "command finished");
+}
+
+#[test]
+fn anthropic_sse_response_maps_custom_tool_call_to_tool_use_events() {
+    let upstream = r#"data: {"type":"response.output_item.done","response_id":"resp_custom_tool_stream_1","created":1700001300,"model":"gpt-5.3-codex","output_index":0,"item":{"type":"custom_tool_call","call_id":"call_exec_stream_1","name":"exec","input":"{\"cmd\":\"pwd\"}"}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicSse,
+        Some("text/event-stream"),
+        upstream.as_bytes(),
+    )
+    .expect("convert response");
+    let text = String::from_utf8(body).expect("parse sse body");
+    assert_eq!(content_type, "text/event-stream");
+    assert!(text.contains("\"type\":\"tool_use\""));
+    assert!(text.contains("\"id\":\"call_exec_stream_1\""));
+    assert!(text.contains("\"name\":\"exec\""));
+    assert!(text.contains("\"partial_json\":\"{\\\"cmd\\\":\\\"pwd\\\"}\""));
+}
+
+#[test]
+fn anthropic_sse_response_maps_web_search_call_to_text_events() {
+    let upstream = r#"data: {"type":"response.output_item.done","response_id":"resp_web_search_stream_1","created":1700001301,"model":"gpt-5.3-codex","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"weather seattle"}}}
+
+data: [DONE]
+
+"#;
+    let (body, content_type) = adapt_upstream_response(
+        ResponseAdapter::AnthropicSse,
+        Some("text/event-stream"),
+        upstream.as_bytes(),
+    )
+    .expect("convert response");
+    let text = String::from_utf8(body).expect("parse sse body");
+    assert_eq!(content_type, "text/event-stream");
+    assert!(text.contains("\"type\":\"text_delta\""));
+    assert!(text.contains("[web_search_call] status=completed query=weather seattle"));
+}
+
+#[test]
 fn anthropic_sse_response_restores_shortened_tool_name() {
     let mut restore_map = super::ToolNameRestoreMap::new();
     restore_map.insert(

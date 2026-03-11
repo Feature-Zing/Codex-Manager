@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use super::super::json_conversion::{
     convert_openai_json_to_anthropic, extract_function_call_arguments_raw,
     extract_responses_reasoning_text, map_finish_reason, parse_tool_arguments_as_object,
+    summarize_special_response_item_text,
 };
-use super::super::tool_mapping::restore_openai_tool_name;
+use super::super::tool_mapping::{is_openai_chat_tool_item_type, restore_openai_tool_name};
 use super::super::ToolNameRestoreMap;
 use super::anthropic_sse_writer::convert_anthropic_json_to_sse;
 
@@ -103,8 +104,14 @@ pub(super) fn convert_openai_sse_to_anthropic(
                     if item_obj
                         .get("type")
                         .and_then(Value::as_str)
-                        .map_or(true, |kind| kind != "function_call")
+                        .map_or(true, |kind| !is_openai_chat_tool_item_type(kind))
                     {
+                        if let Some(summary) = summarize_special_response_item_text(item_obj) {
+                            if !content_text.is_empty() && !content_text.ends_with('\n') {
+                                content_text.push('\n');
+                            }
+                            content_text.push_str(summary.as_str());
+                        }
                         continue;
                     }
                     let index = value

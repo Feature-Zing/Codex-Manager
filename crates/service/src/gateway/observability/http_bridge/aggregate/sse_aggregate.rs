@@ -33,7 +33,117 @@ struct ResponsesSseSynthesis {
     created: Option<i64>,
     usage: Option<Value>,
     output_text: String,
+    output_items: BTreeMap<i64, Value>,
+    next_output_index: i64,
     saw_completed: bool,
+}
+
+fn merge_tool_call_arguments(existing: &mut String, fragment: &str) {
+    if fragment.is_empty() {
+        return;
+    }
+    if existing.is_empty() {
+        existing.push_str(fragment);
+        return;
+    }
+    if existing == fragment || existing.ends_with(fragment) || existing.starts_with(fragment) {
+        return;
+    }
+    if fragment.starts_with(existing.as_str()) {
+        *existing = fragment.to_string();
+        return;
+    }
+    existing.push_str(fragment);
+}
+
+fn reserve_output_index(synthesis: &mut ResponsesSseSynthesis, explicit_index: Option<i64>) -> i64 {
+    if let Some(index) = explicit_index {
+        synthesis.next_output_index = synthesis.next_output_index.max(index + 1);
+        index
+    } else {
+        let index = synthesis.next_output_index;
+        synthesis.next_output_index += 1;
+        index
+    }
+}
+
+fn merge_response_output_item_event(synthesis: &mut ResponsesSseSynthesis, value: &Value) {
+    let Some(event_type) = value.get("type").and_then(Value::as_str) else {
+        return;
+    };
+
+    match event_type {
+        "response.output_item.added" | "response.output_item.done" => {
+            let Some(item) = value.get("item").or_else(|| value.get("output_item")) else {
+                return;
+            };
+            let explicit_index = value
+                .get("output_index")
+                .and_then(Value::as_i64)
+                .or_else(|| item.get("index").and_then(Value::as_i64));
+            let index = reserve_output_index(synthesis, explicit_index);
+            let mut stored = item.clone();
+            if let Some(stored_obj) = stored.as_object_mut() {
+                stored_obj
+                    .entry("index".to_string())
+                    .or_insert(index.into());
+                if let Some(existing_obj) = synthesis
+                    .output_items
+                    .get(&index)
+                    .and_then(Value::as_object)
+                {
+                    for field in ["id", "call_id", "name", "arguments"] {
+                        if stored_obj.get(field).is_none() {
+                            if let Some(existing_value) = existing_obj.get(field) {
+                                stored_obj.insert(field.to_string(), existing_value.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            synthesis.output_items.insert(index, stored);
+        }
+        "response.function_call_arguments.delta" | "response.function_call_arguments.done" => {
+            let fragment = value
+                .get("delta")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("arguments").and_then(Value::as_str))
+                .unwrap_or_default();
+            let explicit_index = value.get("output_index").and_then(Value::as_i64);
+            let index = reserve_output_index(synthesis, explicit_index);
+            let entry = synthesis
+                .output_items
+                .entry(index)
+                .or_insert_with(|| json!({ "type": "function_call", "index": index }));
+            if !entry.is_object() {
+                *entry = json!({ "type": "function_call", "index": index });
+            }
+            let Some(entry_obj) = entry.as_object_mut() else {
+                return;
+            };
+            if let Some(call_id) = value
+                .get("call_id")
+                .or_else(|| value.get("item_id"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                entry_obj
+                    .entry("call_id".to_string())
+                    .or_insert_with(|| Value::String(call_id.to_string()));
+            }
+            let mut arguments = entry_obj
+                .get("arguments")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_default();
+            merge_tool_call_arguments(&mut arguments, fragment);
+            if !arguments.is_empty() {
+                entry_obj.insert("arguments".to_string(), Value::String(arguments));
+            }
+        }
+        _ => {}
+    }
 }
 
 fn append_chat_delta_content(buffer: &mut String, delta_content: &Value) {
@@ -170,8 +280,17 @@ fn update_responses_sse_synthesis(synthesis: &mut ResponsesSseSynthesis, value: 
 
     let mut text_out = String::new();
     collect_output_text_from_event_fields(value, &mut text_out);
-    if let Some(delta) = value.get("delta") {
-        collect_response_output_text(delta, &mut text_out);
+    if matches!(
+        event_type,
+        "response.output_text.delta"
+            | "response.output_text.done"
+            | "response.content_part.added"
+            | "response.content_part.delta"
+            | "response.content_part.done"
+    ) {
+        if let Some(delta) = value.get("delta") {
+            collect_response_output_text(delta, &mut text_out);
+        }
     }
     if let Some(response) = value.get("response") {
         collect_response_output_text(response, &mut text_out);
@@ -179,6 +298,7 @@ fn update_responses_sse_synthesis(synthesis: &mut ResponsesSseSynthesis, value: 
     if !text_out.trim().is_empty() {
         append_output_text_raw(&mut synthesis.output_text, text_out.as_str());
     }
+    merge_response_output_item_event(synthesis, value);
 
     if is_response_completed_event_name(event_type) {
         synthesis.saw_completed = true;
@@ -202,6 +322,15 @@ fn build_response_output_items_from_text(text: &str) -> Value {
             "text": text
         }]
     })])
+}
+
+fn build_response_output_items_from_sse(synthesis: &ResponsesSseSynthesis) -> Option<Value> {
+    if synthesis.output_items.is_empty() {
+        return None;
+    }
+    Some(Value::Array(
+        synthesis.output_items.values().cloned().collect::<Vec<_>>(),
+    ))
 }
 
 fn enrich_completed_response_with_sse_text(
@@ -252,12 +381,20 @@ fn enrich_completed_response_with_sse_text(
         }
     }
 
+    let has_structured_output = response_obj
+        .get("output")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty());
     let has_effective_output = response_has_effective_output(&Value::Object(response_obj.clone()));
-    if !has_effective_output && !synthesis.output_text.trim().is_empty() {
-        response_obj.insert(
-            "output".to_string(),
-            build_response_output_items_from_text(synthesis.output_text.as_str()),
-        );
+    if !has_structured_output {
+        if let Some(output_items) = build_response_output_items_from_sse(synthesis) {
+            response_obj.insert("output".to_string(), output_items);
+        } else if !has_effective_output && !synthesis.output_text.trim().is_empty() {
+            response_obj.insert(
+                "output".to_string(),
+                build_response_output_items_from_text(synthesis.output_text.as_str()),
+            );
+        }
     }
     if response_obj
         .get("output_text")
@@ -275,7 +412,10 @@ fn enrich_completed_response_with_sse_text(
 }
 
 fn synthesize_response_body_from_sse(synthesis: &ResponsesSseSynthesis) -> Option<Vec<u8>> {
-    if !synthesis.saw_completed || synthesis.output_text.trim().is_empty() {
+    let output_items = build_response_output_items_from_sse(synthesis);
+    if !synthesis.saw_completed
+        || (synthesis.output_text.trim().is_empty() && output_items.is_none())
+    {
         return None;
     }
     let created = synthesis.created.unwrap_or_else(|| {
@@ -309,12 +449,15 @@ fn synthesize_response_body_from_sse(synthesis: &ResponsesSseSynthesis) -> Optio
     out.insert("status".to_string(), Value::String("completed".to_string()));
     out.insert(
         "output".to_string(),
-        build_response_output_items_from_text(synthesis.output_text.trim()),
+        output_items
+            .unwrap_or_else(|| build_response_output_items_from_text(synthesis.output_text.trim())),
     );
-    out.insert(
-        "output_text".to_string(),
-        Value::String(synthesis.output_text.trim().to_string()),
-    );
+    if !synthesis.output_text.trim().is_empty() {
+        out.insert(
+            "output_text".to_string(),
+            Value::String(synthesis.output_text.trim().to_string()),
+        );
+    }
     if let Some(usage) = synthesis.usage.clone() {
         out.insert("usage".to_string(), usage);
     }
