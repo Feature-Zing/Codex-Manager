@@ -5,6 +5,8 @@ mod cooldown;
 mod error_response;
 #[path = "routing/failover.rs"]
 mod failover;
+#[path = "observability/error_file_log.rs"]
+mod error_file_log;
 #[path = "observability/http_bridge/mod.rs"]
 mod http_bridge;
 #[path = "request/incoming_headers.rs"]

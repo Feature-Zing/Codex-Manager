@@ -48,7 +48,7 @@ impl UpstreamResponseBridgeResult {
             return Some(err.clone());
         }
         if is_stream && !self.stream_terminal_seen {
-            return Some("stream disconnected before completion".to_string());
+            return Some("上游流中途中断（未正常结束）".to_string());
         }
         if let Some(err) = self.delivery_error.as_ref() {
             return Some(format!("response write failed: {err}"));
@@ -440,7 +440,7 @@ pub(in super::super) fn extract_error_hint_from_body(
     }
     if let Ok(value) = serde_json::from_slice::<Value>(body) {
         if let Some(message) = extract_error_message_from_json(&value) {
-            return Some(message);
+            return Some(summarize_upstream_error_hint(status_code, &message));
         }
     }
     std::str::from_utf8(body)
@@ -456,4 +456,86 @@ pub(in super::super) fn extract_error_hint_from_body(
                 snippet
             }
         })
+        .map(|text| summarize_upstream_error_hint(status_code, &text))
+}
+
+fn summarize_upstream_error_hint(status_code: u16, raw: &str) -> String {
+    let text = raw.trim();
+    if text.is_empty() {
+        return "上游返回异常".to_string();
+    }
+
+    let normalized = text.to_ascii_lowercase();
+    let looks_like_html = normalized.contains("<html")
+        || normalized.contains("<!doctype html")
+        || normalized.contains("<body")
+        || normalized.contains("</html>");
+    let looks_like_challenge = normalized.contains("cloudflare")
+        || normalized.contains("cf-chl")
+        || normalized.contains("just a moment")
+        || normalized.contains("attention required")
+        || normalized.contains("captcha")
+        || normalized.contains("security check")
+        || normalized.contains("access denied")
+        || normalized.contains("waf");
+
+    if looks_like_challenge || (looks_like_html && matches!(status_code, 401 | 403)) {
+        return "上游被安全验证拦截（Cloudflare/WAF）".to_string();
+    }
+    if looks_like_html {
+        return "上游返回了网页内容而不是接口数据，可能是验证页或错误页".to_string();
+    }
+    if normalized.contains("timed out") || normalized.contains("timeout") {
+        return "上游请求超时".to_string();
+    }
+    if normalized.contains("connection reset")
+        || normalized.contains("broken pipe")
+        || normalized.contains("connection aborted")
+        || normalized.contains("forcibly closed")
+        || normalized.contains("unexpected eof")
+    {
+        return "上游连接中断".to_string();
+    }
+    text.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_error_hint_from_body, summarize_upstream_error_hint, UpstreamResponseBridgeResult};
+
+    #[test]
+    fn summarize_upstream_error_hint_recognizes_challenge_html() {
+        assert_eq!(
+            summarize_upstream_error_hint(403, "<html><title>Just a moment...</title>"),
+            "上游被安全验证拦截（Cloudflare/WAF）"
+        );
+    }
+
+    #[test]
+    fn summarize_upstream_error_hint_recognizes_generic_html() {
+        assert_eq!(
+            summarize_upstream_error_hint(502, "<!doctype html><html><body>error</body></html>"),
+            "上游返回了网页内容而不是接口数据，可能是验证页或错误页"
+        );
+    }
+
+    #[test]
+    fn extract_error_hint_from_body_summarizes_html_body() {
+        assert_eq!(
+            extract_error_hint_from_body(403, b"<html><body>Cloudflare</body></html>").as_deref(),
+            Some("上游被安全验证拦截（Cloudflare/WAF）")
+        );
+    }
+
+    #[test]
+    fn bridge_error_message_reports_stream_incomplete_in_chinese() {
+        let bridge = UpstreamResponseBridgeResult {
+            stream_terminal_seen: false,
+            ..UpstreamResponseBridgeResult::default()
+        };
+        assert_eq!(
+            bridge.error_message(true).as_deref(),
+            Some("上游流中途中断（未正常结束）")
+        );
+    }
 }

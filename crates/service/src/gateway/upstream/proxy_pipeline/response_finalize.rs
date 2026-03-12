@@ -136,10 +136,10 @@ pub(super) fn finalize_upstream_response(
         match final_error.as_deref() {
             Some(existing) if existing.contains(upstream_hint) => {}
             Some(existing) => {
-                final_error = Some(format!("{existing}; upstream_error={upstream_hint}"));
+                final_error = Some(format!("{existing}；{upstream_hint}"));
             }
             None => {
-                final_error = Some(format!("upstream_error={upstream_hint}"));
+                final_error = Some(upstream_hint.to_string());
             }
         }
     }

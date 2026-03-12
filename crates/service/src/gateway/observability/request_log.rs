@@ -136,6 +136,20 @@ pub(super) fn write_request_log(
     let created_at = now_ts();
     let estimated_cost_usd =
         estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
+    super::error_file_log::append_gateway_error_log(super::error_file_log::GatewayErrorLogEntry {
+        ts: created_at,
+        trace_id: trace_context.trace_id,
+        key_id,
+        account_id,
+        method,
+        request_path,
+        original_path: Some(original_path),
+        adapted_path: Some(adapted_path),
+        model,
+        reasoning_effort,
+        status_code,
+        error,
+    });
     let success = status_code
         .map(|status| (200..300).contains(&status))
         .unwrap_or(false);

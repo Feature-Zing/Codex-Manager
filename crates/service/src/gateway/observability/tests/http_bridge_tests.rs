@@ -697,7 +697,7 @@ fn openai_chat_sse_reader_requires_terminal_event_before_success() {
     assert!(!collector.saw_terminal);
     assert_eq!(
         collector.terminal_error.as_deref(),
-        Some("stream disconnected before completion")
+        Some("上游流中途中断（未正常结束）")
     );
 }
 
@@ -725,7 +725,7 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
     assert!(!collector.saw_terminal);
     assert_eq!(
         collector.terminal_error.as_deref(),
-        Some("stream disconnected before completion")
+        Some("上游流中途中断（未正常结束）")
     );
 }
 

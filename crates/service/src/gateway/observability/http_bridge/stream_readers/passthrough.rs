@@ -1,5 +1,6 @@
 use super::{
-    inspect_sse_frame, merge_usage, sse_keepalive_interval, Arc, Cursor, Mutex,
+    classify_upstream_stream_read_error, inspect_sse_frame, merge_usage, sse_keepalive_interval,
+    stream_incomplete_message, stream_reader_disconnected_message, Arc, Cursor, Mutex,
     PassthroughSseCollector, Read, SseKeepAliveFrame, SseTerminal, UpstreamSseFramePump,
     UpstreamSseFramePumpItem,
 };
@@ -54,9 +55,9 @@ impl PassthroughSseUsageReader {
             Ok(UpstreamSseFramePumpItem::Eof) => {
                 if let Ok(mut collector) = self.usage_collector.lock() {
                     if !collector.saw_terminal {
-                        collector.terminal_error.get_or_insert_with(|| {
-                            "stream disconnected before completion".to_string()
-                        });
+                        collector
+                            .terminal_error
+                            .get_or_insert_with(stream_incomplete_message);
                     }
                 }
                 self.finished = true;
@@ -66,7 +67,7 @@ impl PassthroughSseUsageReader {
                 if let Ok(mut collector) = self.usage_collector.lock() {
                     collector
                         .terminal_error
-                        .get_or_insert_with(|| format!("stream read failed: {err}"));
+                        .get_or_insert_with(|| classify_upstream_stream_read_error(&err));
                 }
                 self.finished = true;
                 Ok(Vec::new())
@@ -76,9 +77,9 @@ impl PassthroughSseUsageReader {
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 if let Ok(mut collector) = self.usage_collector.lock() {
-                    collector.terminal_error.get_or_insert_with(|| {
-                        "stream reader disconnected unexpectedly".to_string()
-                    });
+                    collector
+                        .terminal_error
+                        .get_or_insert_with(stream_reader_disconnected_message);
                 }
                 self.finished = true;
                 Ok(Vec::new())

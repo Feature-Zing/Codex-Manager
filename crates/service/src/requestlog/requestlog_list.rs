@@ -2,6 +2,29 @@ use codexmanager_core::rpc::types::RequestLogSummary;
 
 use crate::storage_helpers::open_storage;
 
+fn sanitize_upstream_url_for_display(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    let lower = trimmed.to_ascii_lowercase();
+
+    if lower.contains("localhost")
+        || lower.contains("127.0.0.1")
+        || lower.contains("0.0.0.0")
+        || lower.contains("[::1]")
+    {
+        return Some("本地".to_string());
+    }
+
+    if lower.contains("chatgpt.com")
+        || lower.contains("chat.openai.com")
+        || lower.contains("api.openai.com")
+        || lower.contains("/backend-api/codex")
+    {
+        return Some("默认".to_string());
+    }
+
+    Some("自定义".to_string())
+}
+
 pub(crate) fn read_request_logs(
     query: Option<String>,
     limit: Option<i64>,
@@ -23,7 +46,7 @@ pub(crate) fn read_request_logs(
             model: item.model,
             reasoning_effort: item.reasoning_effort,
             response_adapter: item.response_adapter,
-            upstream_url: item.upstream_url,
+            upstream_url: sanitize_upstream_url_for_display(item.upstream_url.as_deref()),
             status_code: item.status_code,
             input_tokens: item.input_tokens,
             cached_input_tokens: item.cached_input_tokens,
@@ -35,4 +58,43 @@ pub(crate) fn read_request_logs(
             created_at: item.created_at,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_upstream_url_for_display;
+
+    #[test]
+    fn sanitize_upstream_url_masks_official_domains() {
+        assert_eq!(
+            sanitize_upstream_url_for_display(Some("https://chatgpt.com/backend-api/codex/responses"))
+                .as_deref(),
+            Some("默认")
+        );
+        assert_eq!(
+            sanitize_upstream_url_for_display(Some("https://api.openai.com/v1/responses"))
+                .as_deref(),
+            Some("默认")
+        );
+    }
+
+    #[test]
+    fn sanitize_upstream_url_masks_local_addresses() {
+        assert_eq!(
+            sanitize_upstream_url_for_display(Some("http://127.0.0.1:3000/relay")).as_deref(),
+            Some("本地")
+        );
+        assert_eq!(
+            sanitize_upstream_url_for_display(Some("http://localhost:3000/relay")).as_deref(),
+            Some("本地")
+        );
+    }
+
+    #[test]
+    fn sanitize_upstream_url_masks_custom_addresses() {
+        assert_eq!(
+            sanitize_upstream_url_for_display(Some("https://gateway.example.com/v1")).as_deref(),
+            Some("自定义")
+        );
+    }
 }
