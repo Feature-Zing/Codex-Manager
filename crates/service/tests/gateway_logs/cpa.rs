@@ -107,10 +107,7 @@ fn gateway_cpa_no_cookie_header_mode_suppresses_affinity_headers_on_responses() 
             .map(String::as_str),
         Some("chatgpt_acc_cpa_mode")
     );
-    assert_eq!(
-        captured.headers.get("cookie").map(String::as_str),
-        Some("cf_clearance=still_present")
-    );
+    assert!(!captured.headers.contains_key("cookie"));
     assert_eq!(
         captured.headers.get("session_id").map(String::as_str),
         Some("conv_dummy")
@@ -374,7 +371,7 @@ fn gateway_cpa_no_cookie_header_mode_keeps_account_header_on_compact() {
 
     let _db_guard = EnvGuard::set("CODEXMANAGER_DB_PATH", db_path.to_string_lossy().as_ref());
     let _mode_guard = EnvGuard::set("CODEXMANAGER_CPA_NO_COOKIE_HEADER_MODE", "1");
-    let _cookie_guard = EnvGuard::set("CODEXMANAGER_UPSTREAM_COOKIE", "");
+    let _cookie_guard = EnvGuard::set("CODEXMANAGER_UPSTREAM_COOKIE", "cf_clearance=compact_cookie");
 
     let upstream_response = serde_json::json!({
         "output": [{
@@ -476,4 +473,5 @@ fn gateway_cpa_no_cookie_header_mode_keeps_account_header_on_compact() {
         captured.headers.get("session_id").map(String::as_str),
         Some("sess_cpa_compact")
     );
+    assert!(!captured.headers.contains_key("cookie"));
 }

@@ -121,11 +121,13 @@ pub(crate) fn build_codex_upstream_headers(
             headers.push(("ChatGPT-Account-ID".to_string(), account_id.to_string()));
         }
     }
-    if let Some(cookie) = input
-        .upstream_cookie
-        .filter(|value| !value.trim().is_empty())
-    {
-        headers.push(("Cookie".to_string(), cookie.to_string()));
+    if should_forward_upstream_cookie() {
+        if let Some(cookie) = input
+            .upstream_cookie
+            .filter(|value| !value.trim().is_empty())
+        {
+            headers.push(("Cookie".to_string(), cookie.to_string()));
+        }
     }
     headers
 }
@@ -178,13 +180,19 @@ pub(crate) fn build_codex_compact_upstream_headers(
             headers.push(("ChatGPT-Account-ID".to_string(), account_id.to_string()));
         }
     }
-    if let Some(cookie) = input
-        .upstream_cookie
-        .filter(|value| !value.trim().is_empty())
-    {
-        headers.push(("Cookie".to_string(), cookie.to_string()));
+    if should_forward_upstream_cookie() {
+        if let Some(cookie) = input
+            .upstream_cookie
+            .filter(|value| !value.trim().is_empty())
+        {
+            headers.push(("Cookie".to_string(), cookie.to_string()));
+        }
     }
     headers
+}
+
+fn should_forward_upstream_cookie() -> bool {
+    !crate::gateway::cpa_no_cookie_header_mode_enabled()
 }
 
 fn resolve_session_id(

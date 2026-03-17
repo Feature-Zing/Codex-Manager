@@ -1285,7 +1285,7 @@ fn gateway_chatgpt_primary_preserves_turn_state_headers_without_openai_fallback(
     );
     assert_eq!(
         first.headers.get("x-client-request-id").map(String::as_str),
-        Some("req_dummy")
+        Some("conv_dummy")
     );
     assert_eq!(
         first.headers.get("x-openai-subagent").map(String::as_str),

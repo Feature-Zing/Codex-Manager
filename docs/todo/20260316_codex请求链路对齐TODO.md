@@ -63,6 +63,7 @@
 - [x] refresh token 请求体改成官方 `application/json` 形状
 - [x] usage endpoint 请求头统一到 `ChatGPT-Account-ID` 语义，并对 challenge / HTML 失败输出稳定摘要
 - [x] `CPA no cookie` 模式与 `ChatGPT-Account-ID` 解耦，只抑制 cookie/粘性头，不再误去掉账号头
+- [x] `CPA no cookie` 模式下，`/responses` 与 `/responses/compact` 都会真正停止发送上游 `Cookie`
 - [x] `planType` 读取优先按最新 access token claims
 - [x] 对外 `planType` 已统一到官方枚举语义，并对未知值保留原始 plan 供诊断
 - [x] 401 refresh 错误文案映射到官方 expired / reused / revoked / unknown 消息
