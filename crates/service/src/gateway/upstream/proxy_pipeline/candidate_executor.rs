@@ -32,7 +32,14 @@ fn extract_prompt_cache_key_for_trace(body: &[u8]) -> Option<String> {
 
 pub(in super::super) enum CandidateExecutionResult {
     Handled,
-    Exhausted(Request),
+    Exhausted {
+        request: Request,
+        attempted_account_ids: Vec<String>,
+        skipped_cooldown: usize,
+        skipped_inflight: usize,
+        last_attempt_url: Option<String>,
+        last_attempt_error: Option<String>,
+    },
 }
 
 pub(in super::super) struct CandidateExecutorParams<'a> {
@@ -86,6 +93,10 @@ pub(in super::super) fn execute_candidate_sequence(
     let mut request = Some(request);
     let mut state = CandidateExecutionState::default();
     let mut attempted_account_ids = Vec::new();
+    let mut skipped_cooldown = 0usize;
+    let mut skipped_inflight = 0usize;
+    let mut last_attempt_url = None;
+    let mut last_attempt_error = None;
     for (idx, (account, mut token)) in candidates.into_iter().enumerate() {
         if deadline::is_expired(request_deadline) {
             let request = request
@@ -116,6 +127,14 @@ pub(in super::super) fn execute_candidate_sequence(
         context.log_candidate_start(&account.id, idx, strip_session_affinity);
         if let Some(skip_reason) = context.should_skip_candidate(&account.id, idx) {
             context.log_candidate_skip(&account.id, idx, skip_reason);
+            match skip_reason {
+                super::super::support::candidates::CandidateSkipReason::Cooldown => {
+                    skipped_cooldown += 1;
+                }
+                super::super::support::candidates::CandidateSkipReason::Inflight => {
+                    skipped_inflight += 1;
+                }
+            }
             continue;
         }
         attempted_account_ids.push(account.id.clone());
@@ -170,6 +189,8 @@ pub(in super::super) fn execute_candidate_sequence(
         match decision {
             CandidateUpstreamDecision::Failover => {
                 super::super::super::record_gateway_failover_attempt();
+                last_attempt_url = attempt_trace.last_attempt_url.take();
+                last_attempt_error = attempt_trace.last_attempt_error.take();
                 continue;
             }
             CandidateUpstreamDecision::Terminal {
@@ -227,6 +248,8 @@ pub(in super::super) fn execute_candidate_sequence(
                         }
                         CandidateUpstreamDecision::Failover => {
                             super::super::super::record_gateway_failover_attempt();
+                            last_attempt_url = attempt_trace.last_attempt_url.take();
+                            last_attempt_error = attempt_trace.last_attempt_error.take();
                             continue;
                         }
                         CandidateUpstreamDecision::Terminal {
@@ -280,7 +303,13 @@ pub(in super::super) fn execute_candidate_sequence(
         }
     }
 
-    Ok(CandidateExecutionResult::Exhausted(request.expect(
-        "request should still exist when no candidate handled the response",
-    )))
+    Ok(CandidateExecutionResult::Exhausted {
+        request: request
+            .expect("request should still exist when no candidate handled the response"),
+        attempted_account_ids,
+        skipped_cooldown,
+        skipped_inflight,
+        last_attempt_url,
+        last_attempt_error,
+    })
 }

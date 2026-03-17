@@ -13,6 +13,31 @@ use super::proxy_pipeline::request_setup::prepare_request_setup;
 use super::proxy_pipeline::response_finalize::respond_terminal;
 use super::support::precheck::{prepare_candidates_for_proxy, CandidatePrecheckResult};
 
+fn exhausted_gateway_error_for_log(
+    attempted_account_ids: &[String],
+    skipped_cooldown: usize,
+    skipped_inflight: usize,
+    last_attempt_error: Option<&str>,
+) -> String {
+    let mut parts = vec!["no available account".to_string()];
+    if !attempted_account_ids.is_empty() {
+        parts.push(format!("attempted={}", attempted_account_ids.join(",")));
+    }
+    if skipped_cooldown > 0 || skipped_inflight > 0 {
+        parts.push(format!(
+            "skipped(cooldown={}, inflight={})",
+            skipped_cooldown, skipped_inflight
+        ));
+    }
+    if let Some(last_attempt_error) = last_attempt_error
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(format!("last_attempt={last_attempt_error}"));
+    }
+    parts.join("; ")
+}
+
 pub(in super::super) fn proxy_validated_request(
     request: Request,
     validated: LocalValidationResult,
@@ -140,7 +165,7 @@ pub(in super::super) fn proxy_validated_request(
         model_for_log.as_deref(),
         request_deadline,
     );
-    let request = match execute_candidate_sequence(
+    let exhausted = match execute_candidate_sequence(
         request,
         candidates,
         CandidateExecutorParams {
@@ -166,17 +191,45 @@ pub(in super::super) fn proxy_validated_request(
         },
     )? {
         CandidateExecutionResult::Handled => return Ok(()),
-        CandidateExecutionResult::Exhausted(request) => request,
+        CandidateExecutionResult::Exhausted {
+            request,
+            attempted_account_ids,
+            skipped_cooldown,
+            skipped_inflight,
+            last_attempt_url,
+            last_attempt_error,
+        } => (
+            request,
+            attempted_account_ids,
+            skipped_cooldown,
+            skipped_inflight,
+            last_attempt_url,
+            last_attempt_error,
+        ),
     };
+    let (
+        request,
+        attempted_account_ids,
+        skipped_cooldown,
+        skipped_inflight,
+        last_attempt_url,
+        last_attempt_error,
+    ) = exhausted;
+    let final_error = exhausted_gateway_error_for_log(
+        attempted_account_ids.as_slice(),
+        skipped_cooldown,
+        skipped_inflight,
+        last_attempt_error.as_deref(),
+    );
 
     context.log_final_result(
         None,
-        Some(base),
+        last_attempt_url.as_deref().or(Some(base)),
         503,
         RequestLogUsage::default(),
-        Some("no available account"),
+        Some(final_error.as_str()),
         started_at.elapsed().as_millis(),
-        None,
+        (!attempted_account_ids.is_empty()).then_some(attempted_account_ids.as_slice()),
     );
     respond_terminal(
         request,
@@ -184,4 +237,24 @@ pub(in super::super) fn proxy_validated_request(
         "no available account".to_string(),
         Some(trace_id.as_str()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exhausted_gateway_error_for_log;
+
+    #[test]
+    fn exhausted_gateway_error_includes_attempts_skips_and_last_error() {
+        let message = exhausted_gateway_error_for_log(
+            &["acc-a".to_string(), "acc-b".to_string()],
+            2,
+            1,
+            Some("upstream challenge blocked"),
+        );
+
+        assert!(message.contains("no available account"));
+        assert!(message.contains("attempted=acc-a,acc-b"));
+        assert!(message.contains("skipped(cooldown=2, inflight=1)"));
+        assert!(message.contains("last_attempt=upstream challenge blocked"));
+    }
 }
