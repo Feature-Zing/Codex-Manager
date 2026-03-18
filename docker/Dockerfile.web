@@ -5,7 +5,7 @@ WORKDIR /src/apps
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 
 COPY apps/package.json apps/pnpm-lock.yaml apps/pnpm-workspace.yaml ./
-COPY apps/components.json apps/next-env.d.ts apps/next.config.ts ./
+COPY apps/components.json apps/next.config.ts ./
 COPY apps/postcss.config.mjs apps/tsconfig.json ./
 COPY apps/public ./public
 COPY apps/src ./src

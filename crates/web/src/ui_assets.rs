@@ -55,12 +55,10 @@ fn serve_embedded_path(path: &str) -> Response {
     }
 
     let wanted = if raw.is_empty() { "index.html" } else { raw };
-    let bytes = embedded_ui::read_asset_bytes(wanted)
-        .or_else(|| embedded_ui::read_asset_bytes("index.html"));
-    let Some(bytes) = bytes else {
+    let Some((served_path, bytes)) = resolve_embedded_asset(wanted) else {
         return (StatusCode::NOT_FOUND, "missing ui").into_response();
     };
-    let mime = embedded_ui::guess_mime(wanted);
+    let mime = embedded_ui::guess_mime(served_path);
 
     let mut out = Response::new(axum::body::Body::from(bytes));
     out.headers_mut().insert(
@@ -69,4 +67,29 @@ fn serve_embedded_path(path: &str) -> Response {
             .unwrap_or_else(|_| axum::http::HeaderValue::from_static("application/octet-stream")),
     );
     out
+}
+
+fn resolve_embedded_asset(path: &str) -> Option<(&str, &'static [u8])> {
+    embedded_ui::read_asset_bytes(path)
+        .map(|bytes| (path, bytes))
+        .or_else(|| embedded_ui::read_asset_bytes("index.html").map(|bytes| ("index.html", bytes)))
+}
+
+#[cfg(all(test, feature = "embedded-ui"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spa_route_fallback_uses_html_content_type() {
+        let response = serve_embedded_path("accounts");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/html")
+        );
+    }
 }
