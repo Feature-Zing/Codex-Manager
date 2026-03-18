@@ -125,10 +125,13 @@
 - Codex（OpenAI）：本项目在请求链路、登录语义与上游兼容行为上参考了该项目的实现与源码结构 <https://github.com/openai/codex>
 - CPA（CLIProxyAPI）：本项目在协议适配、请求转发与兼容行为上参考了该项目的实现思路 <https://github.com/router-for-me/CLIProxyAPI>
 
+## 认可社区
+-  [Linux.do 开源推广](https://linux.do/t/topic/1776670)
+
 ## 联系方式
 - 公众号：七线牛马
 - 微信： ProsperGao
-- 认可社区： [Linux.do 开源推广](https://linux.do/t/topic/1776670)
+
 - 交流圈：
 
   <img src="assets/images/qq_group.jpg" alt="交流群二维码" width="280" />

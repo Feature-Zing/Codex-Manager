@@ -115,6 +115,12 @@ A local desktop + service toolkit for managing Codex-compatible accounts, usage,
 - Codex (OpenAI): this project references its implementation and source layout for request-path behavior, login semantics, and upstream compatibility <https://github.com/openai/codex>
 - CPA (CLIProxyAPI): this project references its protocol adaptation, request forwarding, and compatibility design <https://github.com/router-for-me/CLIProxyAPI>
 
+## Recognized Community
+- [Linux.do Open Source Promotion](https://linux.do/t/topic/1776670)
+
 ## Contact Information
 - Official Account: 七线牛马
 - WeChat: ProsperGao
+- Community Group:
+
+  <img src="assets/images/qq_group.jpg" alt="Community Group QR Code" width="280" />
