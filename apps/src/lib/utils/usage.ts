@@ -105,7 +105,9 @@ export function isBannedAccount(
   }
   const reason = normalizedAccountStatusReason(account);
   return (
-    reason === "account_deactivated" || reason === "workspace_deactivated"
+    reason === "account_deactivated" ||
+    reason === "workspace_deactivated" ||
+    reason === "deactivated_workspace"
   );
 }
 

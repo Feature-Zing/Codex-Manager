@@ -416,6 +416,12 @@ fn deactivation_reason_detects_workspace_and_account_scope() {
         Some("workspace_deactivated")
     );
     assert_eq!(
+        deactivation_reason_from_message(
+            "unexpected status 402 Payment Required: detail: code deactivated_workspace"
+        ),
+        Some("workspace_deactivated")
+    );
+    assert_eq!(
         deactivation_reason_from_message("auth error: account_deactivated"),
         Some("account_deactivated")
     );

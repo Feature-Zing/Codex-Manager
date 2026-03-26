@@ -75,7 +75,9 @@ fn extract_usage_http_status_code(message: &str) -> Option<u16> {
 pub(crate) fn deactivation_reason_from_message(message: &str) -> Option<&'static str> {
     let normalized = message.trim().to_ascii_lowercase();
     if normalized.contains("workspace_deactivated")
+        || normalized.contains("deactivated_workspace")
         || normalized.contains("workspace deactivated")
+        || normalized.contains("workspace-deactivated")
         || normalized.contains("deactivated workspace")
     {
         return Some("workspace_deactivated");
@@ -92,7 +94,7 @@ pub(crate) fn deactivation_reason_from_message(message: &str) -> Option<&'static
 pub(crate) fn is_banned_status_reason(reason: &str) -> bool {
     matches!(
         reason.trim().to_ascii_lowercase().as_str(),
-        "account_deactivated" | "workspace_deactivated"
+        "account_deactivated" | "workspace_deactivated" | "deactivated_workspace"
     )
 }
 
