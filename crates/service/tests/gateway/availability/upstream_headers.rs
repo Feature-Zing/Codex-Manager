@@ -55,6 +55,7 @@ fn codex_header_profile_sets_required_headers_for_stream() {
         include_turn_state: true,
         strip_session_affinity: false,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 
@@ -72,7 +73,14 @@ fn codex_header_profile_sets_required_headers_for_stream() {
     );
     assert!(find_header(&headers, "Connection").is_none());
     assert!(find_header(&headers, "Version").is_none());
-    assert!(find_header(&headers, "Openai-Beta").is_none());
+    assert_eq!(
+        find_header(&headers, "OpenAI-Beta").as_deref(),
+        Some("responses_websockets=2026-02-06")
+    );
+    assert_eq!(
+        find_header(&headers, "x-responsesapi-include-timing-metrics").as_deref(),
+        Some("true")
+    );
     assert_eq!(
         find_header(&headers, "Originator").as_deref(),
         Some("codex_cli_rs")
@@ -122,6 +130,7 @@ fn codex_header_profile_uses_json_accept_for_non_stream() {
         include_turn_state: true,
         strip_session_affinity: false,
         is_stream: false,
+        include_timing_metrics: false,
         has_body: false,
     });
 
@@ -145,6 +154,8 @@ fn codex_compact_header_profile_matches_remote_compact_shape() {
         incoming_subagent: Some("compact"),
         fallback_session_id: Some("fallback-session"),
         strip_session_affinity: false,
+        is_stream: false,
+        include_timing_metrics: false,
         has_body: true,
     });
 
@@ -195,6 +206,8 @@ fn codex_compact_header_profile_omits_subagent_without_explicit_source() {
         incoming_subagent: None,
         fallback_session_id: Some("fallback-session"),
         strip_session_affinity: false,
+        is_stream: false,
+        include_timing_metrics: false,
         has_body: true,
     });
 
@@ -212,6 +225,8 @@ fn codex_compact_header_profile_omits_session_without_thread_anchor() {
         incoming_subagent: None,
         fallback_session_id: None,
         strip_session_affinity: false,
+        is_stream: false,
+        include_timing_metrics: false,
         has_body: true,
     });
 
@@ -239,6 +254,7 @@ fn codex_header_profile_uses_dynamic_originator_and_residency_requirement() {
         include_turn_state: true,
         strip_session_affinity: false,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 
@@ -272,6 +288,7 @@ fn codex_header_profile_regenerates_session_on_failover() {
         include_turn_state: true,
         strip_session_affinity: true,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 
@@ -304,6 +321,7 @@ fn codex_header_profile_uses_fallback_session_when_incoming_missing() {
         include_turn_state: true,
         strip_session_affinity: false,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 
@@ -331,6 +349,7 @@ fn codex_header_profile_does_not_forward_conversation_header_even_with_fallback(
         include_turn_state: true,
         strip_session_affinity: false,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 
@@ -354,6 +373,7 @@ fn codex_header_profile_skips_account_header_when_disabled() {
         include_turn_state: true,
         strip_session_affinity: false,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 
@@ -376,11 +396,12 @@ fn codex_header_profile_can_disable_affinity_headers() {
         incoming_turn_state: Some("sticky-turn"),
         include_turn_state: false,
         strip_session_affinity: false,
-        is_stream: true,
+        is_stream: false,
+        include_timing_metrics: false,
         has_body: true,
     });
 
-    assert!(find_header(&headers, "Openai-Beta").is_none());
+    assert!(find_header(&headers, "OpenAI-Beta").is_none());
     assert!(find_header(&headers, "x-codex-turn-state").is_none());
     assert!(find_header(&headers, "Conversation_id").is_none());
     assert_eq!(
@@ -407,6 +428,7 @@ fn codex_header_profile_does_not_invent_client_request_id_on_failover() {
         include_turn_state: true,
         strip_session_affinity: true,
         is_stream: true,
+        include_timing_metrics: true,
         has_body: true,
     });
 

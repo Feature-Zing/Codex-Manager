@@ -519,6 +519,8 @@ pub(crate) fn convert_openai_chat_completions_request(
         .and_then(|value| map_openai_chat_tool_choice_to_responses(value, &tool_name_map))
     {
         out.insert("tool_choice".to_string(), tool_choice);
+    } else {
+        out.insert("tool_choice".to_string(), Value::String("auto".to_string()));
     }
     if let Some(text) = map_openai_chat_text_controls_to_responses(obj) {
         out.insert("text".to_string(), text);

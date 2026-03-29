@@ -1,3 +1,8 @@
+pub(crate) const OPENAI_BETA_HEADER: &str = "OpenAI-Beta";
+pub(crate) const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str =
+    "responses_websockets=2026-02-06";
+pub(crate) const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
+    "x-responsesapi-include-timing-metrics";
 pub(crate) const CODEX_CLIENT_VERSION: &str = "0.101.0";
 
 pub(crate) struct CodexUpstreamHeaderInput<'a> {
@@ -14,6 +19,7 @@ pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) include_turn_state: bool,
     pub(crate) strip_session_affinity: bool,
     pub(crate) is_stream: bool,
+    pub(crate) include_timing_metrics: bool,
     pub(crate) has_body: bool,
 }
 
@@ -25,6 +31,8 @@ pub(crate) struct CodexCompactUpstreamHeaderInput<'a> {
     pub(crate) incoming_subagent: Option<&'a str>,
     pub(crate) fallback_session_id: Option<&'a str>,
     pub(crate) strip_session_affinity: bool,
+    pub(crate) is_stream: bool,
+    pub(crate) include_timing_metrics: bool,
     pub(crate) has_body: bool,
 }
 
@@ -52,6 +60,12 @@ pub(crate) fn build_codex_upstream_headers(
         "User-Agent".to_string(),
         crate::gateway::current_codex_user_agent(),
     ));
+    if input.is_stream {
+        headers.push((
+            OPENAI_BETA_HEADER.to_string(),
+            RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE.to_string(),
+        ));
+    }
     headers.push((
         "originator".to_string(),
         crate::gateway::current_wire_originator(),
@@ -100,6 +114,13 @@ pub(crate) fn build_codex_upstream_headers(
         headers.push(("session_id".to_string(), session_id));
     }
 
+    if input.is_stream && input.include_timing_metrics {
+        headers.push((
+            X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER.to_string(),
+            "true".to_string(),
+        ));
+    }
+
     if !input.strip_session_affinity {
         if input.include_turn_state {
             if let Some(turn_state) = input.incoming_turn_state {
@@ -132,6 +153,12 @@ pub(crate) fn build_codex_compact_upstream_headers(
         "User-Agent".to_string(),
         crate::gateway::current_codex_user_agent(),
     ));
+    if input.is_stream {
+        headers.push((
+            OPENAI_BETA_HEADER.to_string(),
+            RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE.to_string(),
+        ));
+    }
     headers.push((
         "originator".to_string(),
         crate::gateway::current_wire_originator(),
@@ -155,6 +182,12 @@ pub(crate) fn build_codex_compact_upstream_headers(
         input.strip_session_affinity,
     ) {
         headers.push(("session_id".to_string(), session_id));
+    }
+    if input.is_stream && input.include_timing_metrics {
+        headers.push((
+            X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER.to_string(),
+            "true".to_string(),
+        ));
     }
     if input.include_account_id {
         if let Some(account_id) = input.account_id {
@@ -232,6 +265,7 @@ mod tests {
             include_turn_state: true,
             strip_session_affinity: false,
             is_stream: true,
+            include_timing_metrics: true,
             has_body: true,
         });
 
@@ -244,6 +278,14 @@ mod tests {
             Some("application/json")
         );
         assert_eq!(header_value(&headers, "Accept"), Some("text/event-stream"));
+        assert_eq!(
+            header_value(&headers, "OpenAI-Beta"),
+            Some("responses_websockets=2026-02-06")
+        );
+        assert_eq!(
+            header_value(&headers, "x-responsesapi-include-timing-metrics"),
+            Some("true")
+        );
         let expected_user_agent_prefix = format!(
             "{}/0.999.0",
             crate::gateway::current_wire_originator()
@@ -289,6 +331,7 @@ mod tests {
             include_turn_state: true,
             strip_session_affinity: false,
             is_stream: false,
+            include_timing_metrics: false,
             has_body: false,
         });
 
@@ -315,6 +358,8 @@ mod tests {
             incoming_subagent: Some("subagent-b"),
             fallback_session_id: Some("conversation-anchor"),
             strip_session_affinity: true,
+            is_stream: true,
+            include_timing_metrics: false,
             has_body: true,
         });
 
@@ -322,6 +367,7 @@ mod tests {
         assert_eq!(header_value(&headers, "x-client-request-id"), None);
         assert_eq!(header_value(&headers, "session_id"), Some("conversation-anchor"));
         assert_eq!(header_value(&headers, "x-codex-turn-state"), None);
+        assert_eq!(header_value(&headers, "OpenAI-Beta"), Some("responses_websockets=2026-02-06"));
         assert_eq!(
             header_value(&headers, "ChatGPT-Account-ID"),
             Some("account-xyz")

@@ -113,6 +113,9 @@ pub(crate) fn convert_anthropic_messages_request(
             }
         }
     }
+    if !out.contains_key("tool_choice") {
+        out.insert("tool_choice".to_string(), Value::String("auto".to_string()));
+    }
     let request_stream = obj.get("stream").and_then(Value::as_bool).unwrap_or(true);
     out.insert("stream".to_string(), Value::Bool(true));
     out.insert(

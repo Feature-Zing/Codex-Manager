@@ -282,6 +282,21 @@ fn anthropic_messages_require_model() {
 }
 
 #[test]
+fn anthropic_messages_default_tool_choice_is_auto() {
+    let value = adapted_anthropic_value(serde_json::json!({
+        "model": "claude-3-5-sonnet",
+        "messages": [{ "role": "user", "content": "hello" }]
+    }));
+
+    assert_eq!(
+        value
+            .get("tool_choice")
+            .and_then(serde_json::Value::as_str),
+        Some("auto")
+    );
+}
+
+#[test]
 fn anthropic_assistant_tool_use_preserves_text_order_in_responses_input() {
     let body = serde_json::json!({
         "model": "claude-3-5-sonnet",

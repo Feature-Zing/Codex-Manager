@@ -134,7 +134,17 @@ fn gateway_claude_protocol_end_to_end_uses_codex_headers() {
             .is_some_and(|value| value.contains("0.101.0")),
         "user-agent should carry codex client version"
     );
-    assert!(!captured.headers.contains_key("openai-beta"));
+    assert_eq!(
+        captured.headers.get("openai-beta").map(String::as_str),
+        Some("responses_websockets=2026-02-06")
+    );
+    assert_eq!(
+        captured
+            .headers
+            .get("x-responsesapi-include-timing-metrics")
+            .map(String::as_str),
+        Some("true")
+    );
     assert_eq!(
         captured.headers.get("originator").map(String::as_str),
         Some("codex_cli_rs")

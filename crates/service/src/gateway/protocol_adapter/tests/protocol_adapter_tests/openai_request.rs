@@ -183,6 +183,21 @@ fn openai_chat_completions_stream_uses_sse_adapter() {
 }
 
 #[test]
+fn openai_chat_completions_default_tool_choice_is_auto() {
+    let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}]}"#.to_vec();
+    let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
+        .expect("adapt request");
+    let value: serde_json::Value =
+        serde_json::from_slice(&adapted.body).expect("parse adapted body");
+    assert_eq!(
+        value
+            .get("tool_choice")
+            .and_then(serde_json::Value::as_str),
+        Some("auto")
+    );
+}
+
+#[test]
 fn openai_chat_completions_forward_service_tier_to_responses() {
     let body = br#"{"model":"gpt-5.3-codex","messages":[{"role":"user","content":"hi"}],"service_tier":"flex"}"#.to_vec();
     let adapted = adapt_request_for_protocol(PROTOCOL_OPENAI_COMPAT, "/v1/chat/completions", body)
