@@ -2,6 +2,16 @@
 use super::{adapt_request_for_protocol, ResponseAdapter};
 use crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE;
 
+fn adapted_anthropic_value(body: serde_json::Value) -> serde_json::Value {
+    let adapted = adapt_request_for_protocol(
+        PROTOCOL_ANTHROPIC_NATIVE,
+        "/v1/messages",
+        serde_json::to_vec(&body).expect("serialize body"),
+    )
+    .expect("adapt request");
+    serde_json::from_slice(&adapted.body).expect("parse adapted body")
+}
+
 #[test]
 fn anthropic_messages_are_the_only_path_adapted_to_responses() {
     let body =
@@ -215,6 +225,60 @@ fn anthropic_messages_map_disabled_thinking_to_summary_none() {
             .and_then(serde_json::Value::as_str),
         Some("none")
     );
+}
+
+#[test]
+fn anthropic_messages_preserve_sonnet_model() {
+    let value = adapted_anthropic_value(serde_json::json!({
+        "model": "claude-sonnet-4-5",
+        "messages": [{ "role": "user", "content": "hello" }]
+    }));
+
+    assert_eq!(
+        value.get("model").and_then(serde_json::Value::as_str),
+        Some("claude-sonnet-4-5")
+    );
+}
+
+#[test]
+fn anthropic_messages_preserve_haiku_model() {
+    let value = adapted_anthropic_value(serde_json::json!({
+        "model": "claude-haiku-4-5-20251001",
+        "messages": [{ "role": "user", "content": "hello" }]
+    }));
+
+    assert_eq!(
+        value.get("model").and_then(serde_json::Value::as_str),
+        Some("claude-haiku-4-5-20251001")
+    );
+}
+
+#[test]
+fn anthropic_messages_preserve_unknown_model() {
+    let value = adapted_anthropic_value(serde_json::json!({
+        "model": "claude-nebula-1",
+        "messages": [{ "role": "user", "content": "hello" }]
+    }));
+
+    assert_eq!(
+        value.get("model").and_then(serde_json::Value::as_str),
+        Some("claude-nebula-1")
+    );
+}
+
+#[test]
+fn anthropic_messages_require_model() {
+    let err = adapt_request_for_protocol(
+        PROTOCOL_ANTHROPIC_NATIVE,
+        "/v1/messages",
+        serde_json::to_vec(&serde_json::json!({
+            "messages": [{ "role": "user", "content": "hello" }]
+        }))
+        .expect("serialize body"),
+    )
+    .expect_err("missing model should fail");
+
+    assert!(err.contains("claude model is required"));
 }
 
 #[test]

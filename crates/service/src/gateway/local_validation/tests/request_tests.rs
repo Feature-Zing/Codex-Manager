@@ -1,4 +1,6 @@
 use super::*;
+use codexmanager_core::rpc::types::ModelOption;
+use codexmanager_core::storage::{now_ts, Storage};
 use serde_json::Value;
 
 fn sample_api_key(
@@ -94,4 +96,41 @@ fn aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides() {
     );
     assert_eq!(model_for_log.as_deref(), Some("gpt-5.4"));
     assert_eq!(reasoning_for_log.as_deref(), Some("high"));
+}
+
+#[test]
+fn anthropic_model_must_exist_in_cached_model_options() {
+    let storage = Storage::open_in_memory().expect("open storage");
+    storage.init().expect("init storage");
+    storage
+        .upsert_model_options_cache(
+            "default",
+            &serde_json::to_string(&vec![
+                ModelOption {
+                    slug: "claude-sonnet-4".to_string(),
+                    display_name: "claude-sonnet-4".to_string(),
+                },
+                ModelOption {
+                    slug: "gpt-5.4-mini".to_string(),
+                    display_name: "gpt-5.4-mini".to_string(),
+                },
+            ])
+            .expect("serialize model options"),
+            now_ts(),
+        )
+        .expect("save model cache");
+
+    assert!(ensure_anthropic_model_is_listed(
+        &storage,
+        crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE,
+        Some("claude-sonnet-4")
+    )
+    .is_ok());
+    let err = ensure_anthropic_model_is_listed(
+        &storage,
+        crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE,
+        Some("claude-sonnet-4-5"),
+    )
+    .expect_err("missing model should fail");
+    assert!(err.message.contains("claude model not found in model list"));
 }

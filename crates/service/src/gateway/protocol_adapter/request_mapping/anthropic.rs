@@ -49,7 +49,7 @@ pub(crate) fn convert_anthropic_messages_request(
     let (instructions, input_items) =
         super::convert_chat_messages_to_responses_input(&messages, &tool_name_map)?;
     let mut out = serde_json::Map::new();
-    let resolved_model = resolve_anthropic_upstream_model(obj);
+    let resolved_model = resolve_anthropic_upstream_model(obj)?;
     out.insert("model".to_string(), Value::String(resolved_model));
     let resolved_instructions = instructions
         .as_deref()
@@ -207,16 +207,17 @@ fn collect_anthropic_tool_names(
     names
 }
 
-fn resolve_anthropic_upstream_model(source: &serde_json::Map<String, Value>) -> String {
+fn resolve_anthropic_upstream_model(
+    source: &serde_json::Map<String, Value>,
+) -> Result<String, String> {
     let requested_model = source
         .get("model")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    match requested_model {
-        Some(model) if model.to_ascii_lowercase().contains("codex") => model.to_string(),
-        _ => super::DEFAULT_ANTHROPIC_MODEL.to_string(),
-    }
+    requested_model
+        .map(str::to_string)
+        .ok_or_else(|| "claude model is required".to_string())
 }
 
 fn resolve_anthropic_reasoning_effort(source: &serde_json::Map<String, Value>) -> &'static str {

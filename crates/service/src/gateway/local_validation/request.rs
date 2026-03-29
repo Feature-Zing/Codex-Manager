@@ -1,5 +1,6 @@
 use crate::apikey_profile::{PROTOCOL_ANTHROPIC_NATIVE, ROTATION_AGGREGATE_API};
 use bytes::Bytes;
+use codexmanager_core::rpc::types::ModelOption;
 use codexmanager_core::storage::ApiKey;
 use reqwest::Method;
 use tiny_http::Request;
@@ -31,6 +32,43 @@ fn resolve_effective_request_overrides(
         normalized_reasoning,
         normalized_service_tier,
     )
+}
+
+fn ensure_anthropic_model_is_listed(
+    storage: &codexmanager_core::storage::Storage,
+    protocol_type: &str,
+    model: Option<&str>,
+) -> Result<(), LocalValidationError> {
+    if protocol_type != PROTOCOL_ANTHROPIC_NATIVE {
+        return Ok(());
+    }
+
+    let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err(LocalValidationError::new(400, "claude model is required"));
+    };
+
+    let cached = storage.get_model_options_cache("default").map_err(|err| {
+        LocalValidationError::new(500, format!("model options cache read failed: {err}"))
+    })?;
+    let Some(cache) = cached else {
+        return Err(LocalValidationError::new(
+            400,
+            format!("claude model not found in model list: {model}"),
+        ));
+    };
+
+    let items = serde_json::from_str::<Vec<ModelOption>>(&cache.items_json).unwrap_or_default();
+    let found = items
+        .iter()
+        .any(|item| item.slug.trim().eq_ignore_ascii_case(model));
+    if found {
+        Ok(())
+    } else {
+        Err(LocalValidationError::new(
+            400,
+            format!("claude model not found in model list: {model}"),
+        ))
+    }
 }
 
 fn allow_openai_responses_path_rewrite(protocol_type: &str, normalized_path: &str) -> bool {
@@ -194,6 +232,12 @@ pub(super) fn build_local_validation_result(
     let is_stream = client_request_meta.is_stream;
     let has_prompt_cache_key = client_request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;
+
+    ensure_anthropic_model_is_listed(
+        &storage,
+        api_key.protocol_type.as_str(),
+        model_for_log.as_deref(),
+    )?;
 
     Ok(LocalValidationResult {
         trace_id,
