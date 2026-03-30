@@ -9,7 +9,7 @@ use crate::storage_helpers::open_storage;
 
 const BUILTIN_MARKET_SOURCE_URL: &str = "builtin://codexmanager";
 const BUILTIN_CLEANUP_TASK_INTERVAL_SECS: i64 = 60;
-const BUILTIN_UNAVAILABLE_FREE_CLEANUP_TASK_INTERVAL_SECS: i64 = 24 * 60 * 60;
+const BUILTIN_UNAVAILABLE_FREE_CLEANUP_TASK_INTERVAL_SECS: i64 = 60;
 const BUILTIN_MARKET_MODE: &str = "builtin";
 
 pub(crate) fn handle_catalog_list(req: &JsonRpcRequest) -> JsonRpcResponse {

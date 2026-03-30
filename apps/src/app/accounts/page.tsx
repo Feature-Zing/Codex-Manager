@@ -92,7 +92,7 @@ import { Account, PluginCatalogEntry } from "@/types";
 type StatusFilter = "all" | "available" | "low_quota" | "banned";
 const UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID = "cleanup-unavailable-free-accounts";
 const UNAVAILABLE_FREE_CLEANUP_TASK_ID = `${UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID}::run`;
-const UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS = 24 * 60 * 60;
+const UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS = 60;
 
 const UNAVAILABLE_FREE_CLEANUP_PLUGIN: PluginCatalogEntry = {
   id: UNAVAILABLE_FREE_CLEANUP_PLUGIN_ID,
@@ -115,7 +115,7 @@ fn run(context) {
     {
       id: "run",
       name: "定时自动清理",
-      description: "每天自动清理一次不可用免费账号",
+      description: "每 60 秒自动清理一次不可用免费账号",
       entrypoint: "run",
       scheduleKind: "interval",
       intervalSeconds: UNAVAILABLE_FREE_CLEANUP_DEFAULT_INTERVAL_SECONDS,
@@ -897,7 +897,7 @@ export default function AccountsPage() {
           <DialogHeader>
             <DialogTitle>定时脚本</DialogTitle>
             <DialogDescription>
-              将内置脚本安装为定时任务，默认每天执行一次。启用后可在插件中心继续调整任务间隔。
+              将内置脚本安装为定时任务，默认每分钟执行一次。启用后可在插件中心继续调整任务间隔。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -913,7 +913,7 @@ export default function AccountsPage() {
                 className="glass-card h-10 rounded-xl"
               />
               <div className="text-xs text-muted-foreground">
-                例如 `86400` 表示每天运行一次。
+                例如 `60` 表示每分钟运行一次。
               </div>
             </div>
           </div>
