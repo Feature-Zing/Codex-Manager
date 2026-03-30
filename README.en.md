@@ -39,13 +39,13 @@ A local desktop + service toolkit for managing Codex-compatible accounts, usage,
 ## Landing Guide
 | What you want to do | Go here |
 | --- | --- |
-| First launch, deployment, Docker, macOS allowlist | [Runtime and deployment guide](docs/report/20260310122606850_运行与部署指南.md) |
-| Configure port, proxy, database, Web password, environment variables | [Environment variables and runtime config](docs/report/20260309195355187_环境变量与运行配置说明.md) |
-| Troubleshoot account selection, import failures, challenge blocks, request issues | [FAQ and account-hit rules](docs/report/20260310122606852_FAQ与账号命中规则.md) |
+| First launch, deployment, Docker, macOS allowlist | [Runtime and deployment guide](docs/report/运行与部署指南.md) |
+| Configure port, proxy, database, Web password, environment variables | [Environment variables and runtime config](docs/report/环境变量与运行配置说明.md) |
+| Troubleshoot account selection, import failures, challenge blocks, request issues | [FAQ and account-hit rules](docs/report/FAQ与账号命中规则.md) |
 | Fast plugin-center integration and minimal onboarding | [Plugin center minimal integration guide](docs/report/插件中心最小接入说明.md) |
 | Integrate the plugin center, API list, market modes, and Rhai interfaces | [Plugin center integration and interface list](docs/report/插件中心对接与接口清单.md) |
 | Full internal interface inventory | [System internal interface inventory](docs/report/系统内部接口总表.md) |
-| Build locally, package, publish, run scripts | [Build, release, and script guide](docs/release/20260310122606851_构建发布与脚本说明.md) |
+| Build locally, package, publish, run scripts | [Build, release, and script guide](docs/release/构建发布与脚本说明.md) |
 
 ## Recent Changes
 - Current latest version: `v0.1.13` (2026-03-25)
@@ -118,16 +118,16 @@ A local desktop + service toolkit for managing Codex-compatible accounts, usage,
 ## Topic Pages
 | Page | Content |
 | --- | --- |
-| [Runtime and deployment guide](docs/report/20260310122606850_运行与部署指南.md) | First launch, Docker, Service edition, macOS allowlist |
-| [Environment variables and runtime config](docs/report/20260309195355187_环境变量与运行配置说明.md) | App config, proxy, listen address, database, Web security |
-| [FAQ and account-hit rules](docs/report/20260310122606852_FAQ与账号命中规则.md) | Account hit logic, challenge blocks, import/export, common issues |
-| [Minimal troubleshooting guide](docs/report/20260307234235414_最小排障手册.md) | Fast path for service startup, forwarding, and model refresh issues |
+| [Runtime and deployment guide](docs/report/运行与部署指南.md) | First launch, Docker, Service edition, macOS allowlist |
+| [Environment variables and runtime config](docs/report/环境变量与运行配置说明.md) | App config, proxy, listen address, database, Web security |
+| [FAQ and account-hit rules](docs/report/FAQ与账号命中规则.md) | Account hit logic, challenge blocks, import/export, common issues |
+| [Minimal troubleshooting guide](docs/report/最小排障手册.md) | Fast path for service startup, forwarding, and model refresh issues |
 | [Plugin center minimal integration guide](docs/report/插件中心最小接入说明.md) | Plugin center minimal manifest, RPC surface, and Rhai built-ins |
 | [Plugin center integration and interface list](docs/report/插件中心对接与接口清单.md) | Plugin center route, market modes, Tauri/RPC interfaces, manifest fields, Rhai built-ins |
 | [System internal interface inventory](docs/report/系统内部接口总表.md) | Desktop commands, service RPC methods, and plugin built-ins |
-| [Build, release, and script guide](docs/release/20260310122606851_构建发布与脚本说明.md) | Local build, Tauri packaging, Release workflow, script flags |
-| [Release assets guide](docs/release/20260309195355216_发布与产物说明.md) | Platform artifacts, naming, release vs pre-release |
-| [Script and release responsibility matrix](docs/report/20260309195735631_脚本与发布职责对照.md) | Which script owns which step |
+| [Build, release, and script guide](docs/release/构建发布与脚本说明.md) | Local build, Tauri packaging, Release workflow, script flags |
+| [Release assets guide](docs/release/发布与产物说明.md) | Platform artifacts, naming, release vs pre-release |
+| [Script and release responsibility matrix](docs/report/脚本与发布职责对照.md) | Which script owns which step |
 | [Protocol regression checklist](docs/report/协议兼容回归清单.md) | `/v1/chat/completions`, `/v1/responses`, tools regression items |
 | [CHANGELOG.md](CHANGELOG.md) | Latest release notes, unreleased changes, and full version history |
 
