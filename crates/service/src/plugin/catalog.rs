@@ -11,6 +11,7 @@ const BUILTIN_MARKET_SOURCE_URL: &str = "builtin://codexmanager";
 const BUILTIN_CLEANUP_TASK_INTERVAL_SECS: i64 = 60;
 const BUILTIN_UNAVAILABLE_FREE_CLEANUP_TASK_INTERVAL_SECS: i64 = 60;
 const BUILTIN_MARKET_MODE: &str = "builtin";
+const CUSTOM_MARKET_MODE: &str = "custom";
 
 pub(crate) fn handle_catalog_list(req: &JsonRpcRequest) -> JsonRpcResponse {
     match catalog_list_result(req) {
@@ -62,16 +63,45 @@ fn string_param(req: &JsonRpcRequest, key: &str) -> Option<String> {
 }
 
 fn catalog_list_result(req: &JsonRpcRequest) -> Result<Value, String> {
+    let market_mode = market_source_mode_for_request(req);
     let source_url = source_url_from_request(req);
-    let items = fetch_catalog_entries(source_url.as_deref())?;
+    let items = if market_mode == CUSTOM_MARKET_MODE {
+        if source_url.is_some() {
+            match fetch_catalog_entries(source_url.as_deref()) {
+                Ok(items) => items,
+                Err(err) => {
+                    log::warn!("fetch custom plugin catalog failed: {err}");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        builtin_catalog_entries()
+    };
     Ok(serde_json::json!({
         "sourceUrl": source_url.unwrap_or_default(),
         "items": items,
     }))
 }
 
+fn requested_market_source_mode(req: &JsonRpcRequest) -> Option<String> {
+    string_param(req, "marketMode")
+        .or_else(|| string_param(req, "market_mode"))
+        .map(|value| match value.trim().to_ascii_lowercase().as_str() {
+            CUSTOM_MARKET_MODE | "private" => CUSTOM_MARKET_MODE.to_string(),
+            _ => BUILTIN_MARKET_MODE.to_string(),
+        })
+}
+
+fn market_source_mode_for_request(req: &JsonRpcRequest) -> String {
+    requested_market_source_mode(req).unwrap_or_else(current_market_source_mode)
+}
+
 fn source_url_from_request(req: &JsonRpcRequest) -> Option<String> {
-    if current_market_source_mode() == BUILTIN_MARKET_MODE {
+    let market_mode = market_source_mode_for_request(req);
+    if market_mode == BUILTIN_MARKET_MODE {
         return None;
     }
     string_param(req, "sourceUrl")
@@ -90,8 +120,8 @@ pub(crate) fn current_market_source_mode() -> String {
     let settings = crate::app_settings::list_app_settings_map();
     if let Some(value) = settings.get(crate::app_settings::APP_SETTING_PLUGIN_MARKET_MODE_KEY) {
         return match value.trim().to_ascii_lowercase().as_str() {
-            "private" => "private".to_string(),
-            "custom" => "custom".to_string(),
+            "private" => CUSTOM_MARKET_MODE.to_string(),
+            CUSTOM_MARKET_MODE => CUSTOM_MARKET_MODE.to_string(),
             _ => BUILTIN_MARKET_MODE.to_string(),
         };
     }
@@ -100,7 +130,7 @@ pub(crate) fn current_market_source_mode() -> String {
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
     {
-        return "custom".to_string();
+        return CUSTOM_MARKET_MODE.to_string();
     }
     BUILTIN_MARKET_MODE.to_string()
 }
@@ -128,12 +158,10 @@ pub(crate) fn fetch_catalog_entries(
                         .into_iter()
                         .filter_map(|item| parse_catalog_entry_value(&item, Some(normalized)).ok())
                         .collect::<Vec<_>>();
-                    if !normalized_items.is_empty() {
-                        return Ok(normalized_items);
-                    }
+                    return Ok(normalized_items);
                 }
                 Err(err) => {
-                    log::warn!("fetch plugin catalog failed, fallback builtin: {err}");
+                    return Err(format!("fetch plugin catalog failed: {err}"));
                 }
             }
         }
@@ -398,7 +426,17 @@ pub(crate) fn parse_catalog_entry_value(
 
 #[cfg(test)]
 mod tests {
-    use super::builtin_catalog_entries;
+    use super::{builtin_catalog_entries, catalog_list_result, market_source_mode_for_request};
+    use codexmanager_core::rpc::types::{JsonRpcRequest, RequestId};
+
+    fn catalog_request(params: serde_json::Value) -> JsonRpcRequest {
+        JsonRpcRequest {
+            id: RequestId::from(1),
+            method: "plugin/catalog/list".to_string(),
+            params: Some(params),
+            trace: None,
+        }
+    }
 
     #[test]
     fn builtin_catalog_exposes_cleanup_plugins() {
@@ -442,6 +480,76 @@ mod tests {
         assert_eq!(
             unavailable_free.tasks[0].interval_seconds,
             Some(super::BUILTIN_UNAVAILABLE_FREE_CLEANUP_TASK_INTERVAL_SECS)
+        );
+    }
+
+    #[test]
+    fn request_market_mode_normalizes_private_to_custom() {
+        let request = catalog_request(serde_json::json!({
+            "marketMode": "private"
+        }));
+        assert_eq!(market_source_mode_for_request(&request), "custom");
+    }
+
+    #[test]
+    fn custom_market_with_unreachable_source_returns_empty_items() {
+        let request = catalog_request(serde_json::json!({
+            "marketMode": "custom",
+            "sourceUrl": "http://127.0.0.1:9/unreachable-plugin-market.json"
+        }));
+        let response = catalog_list_result(&request).expect("catalog response");
+        let items = response
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .expect("items array");
+        assert!(items.is_empty());
+        assert_eq!(
+            response
+                .get("sourceUrl")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(""),
+            "http://127.0.0.1:9/unreachable-plugin-market.json"
+        );
+    }
+
+    #[test]
+    fn custom_market_without_source_returns_empty_items() {
+        let request = catalog_request(serde_json::json!({
+            "marketMode": "custom"
+        }));
+        let response = catalog_list_result(&request).expect("catalog response");
+        let items = response
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .expect("items array");
+        assert!(items.is_empty());
+        assert_eq!(
+            response
+                .get("sourceUrl")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(""),
+            ""
+        );
+    }
+
+    #[test]
+    fn builtin_market_never_uses_custom_source() {
+        let request = catalog_request(serde_json::json!({
+            "marketMode": "builtin",
+            "sourceUrl": "http://127.0.0.1:48888/plugin-market.json"
+        }));
+        let response = catalog_list_result(&request).expect("catalog response");
+        let items = response
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .expect("items array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(
+            response
+                .get("sourceUrl")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(""),
+            ""
         );
     }
 }

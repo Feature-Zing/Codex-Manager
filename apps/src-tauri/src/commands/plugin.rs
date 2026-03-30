@@ -3,9 +3,11 @@ use crate::commands::shared::rpc_call_in_background;
 #[tauri::command]
 pub async fn service_plugin_catalog_list(
     addr: Option<String>,
+    market_mode: Option<String>,
     source_url: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({
+        "marketMode": market_mode,
         "sourceUrl": source_url,
     });
     rpc_call_in_background("plugin/catalog/list", addr, Some(params)).await

@@ -14,10 +14,16 @@ import {
 } from "../../types";
 
 export const pluginClient = {
-  async getCatalog(sourceUrl?: string): Promise<PluginCatalogResult> {
+  async getCatalog(params?: {
+    marketMode?: string;
+    sourceUrl?: string;
+  }): Promise<PluginCatalogResult> {
     const result = await invoke<unknown>(
       "service_plugin_catalog_list",
-      withAddr(sourceUrl ? { sourceUrl } : {})
+      withAddr({
+        marketMode: params?.marketMode || null,
+        sourceUrl: params?.sourceUrl || null,
+      })
     );
     return normalizePluginCatalogResult(result);
   },
