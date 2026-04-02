@@ -9,7 +9,7 @@ const DEFAULT_SSE_KEEPALIVE_INTERVAL_MS: u64 = 15_000;
 const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS";
 
 static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALIVE_INTERVAL_MS);
-const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "stream disconnected before completion";
+const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "网络抖动";
 const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "stream read failed";
 
 #[derive(Debug, Clone, Default)]
@@ -310,6 +310,18 @@ pub(super) fn classify_upstream_stream_read_error(raw: &str) -> String {
     if trimmed.is_empty() {
         return STREAM_READ_FAILED_FALLBACK_MESSAGE.to_string();
     }
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized.contains("connection reset")
+        || normalized.contains("connection aborted")
+        || normalized.contains("connection was forcibly closed")
+        || normalized.contains("broken pipe")
+        || normalized.contains("unexpected eof")
+        || normalized.contains("timed out")
+        || normalized.contains("timeout")
+        || normalized.contains("connection closed before message completed")
+    {
+        return STREAM_INCOMPLETE_FALLBACK_MESSAGE.to_string();
+    }
     trimmed.to_string()
 }
 
@@ -354,7 +366,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_disconnect() {
         assert_eq!(
             classify_upstream_stream_read_error("connection reset by peer"),
-            "connection reset by peer"
+            "网络抖动"
         );
     }
 
@@ -373,7 +385,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_timeout() {
         assert_eq!(
             classify_upstream_stream_read_error("operation timed out"),
-            "operation timed out"
+            "网络抖动"
         );
     }
 
@@ -390,10 +402,7 @@ mod tests {
     /// 无
     #[test]
     fn stream_terminal_messages_are_user_friendly() {
-        assert_eq!(stream_incomplete_message(), "stream disconnected before completion");
-        assert_eq!(
-            stream_reader_disconnected_message(),
-            "stream disconnected before completion"
-        );
+        assert_eq!(stream_incomplete_message(), "网络抖动");
+        assert_eq!(stream_reader_disconnected_message(), "网络抖动");
     }
 }

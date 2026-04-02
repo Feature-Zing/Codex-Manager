@@ -118,7 +118,7 @@ pub(crate) fn classify_message(message: &str) -> ErrorCode {
     if normalized.starts_with("response write failed:") {
         return ErrorCode::ResponseWriteFailed;
     }
-    if normalized == "stream disconnected before completion" {
+    if normalized == "stream disconnected before completion" || normalized == "网络抖动" {
         return ErrorCode::StreamInterrupted;
     }
     if normalized.starts_with("upstream stream terminated unexpectedly")
@@ -296,6 +296,7 @@ mod tests {
             classify_message("stream disconnected before completion"),
             ErrorCode::StreamInterrupted
         );
+        assert_eq!(classify_message("网络抖动"), ErrorCode::StreamInterrupted);
         assert_eq!(
             classify_message("code=model_not_found type=invalid_request_error The model 'gpt-5.4' does not exist"),
             ErrorCode::UpstreamNonSuccess

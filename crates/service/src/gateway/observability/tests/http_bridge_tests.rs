@@ -1109,10 +1109,7 @@ fn openai_chat_sse_reader_requires_terminal_event_before_success() {
     assert!(mapped.contains("chat.completion.chunk"));
     assert!(!mapped.contains("data: [DONE]"));
     assert!(!collector.saw_terminal);
-    assert_eq!(
-        collector.terminal_error.as_deref(),
-        Some("stream disconnected before completion")
-    );
+    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
 }
 
 /// 函数 `openai_completions_sse_reader_requires_terminal_event_before_success`
@@ -1148,10 +1145,7 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
     assert!(mapped.contains("\"object\":\"text_completion\""));
     assert!(!mapped.contains("data: [DONE]"));
     assert!(!collector.saw_terminal);
-    assert_eq!(
-        collector.terminal_error.as_deref(),
-        Some("stream disconnected before completion")
-    );
+    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
 }
 
 /// 函数 `passthrough_sse_reader_emits_keepalive_for_responses_stream`
