@@ -1043,14 +1043,14 @@ mod tests {
     /// # 返回
     /// 无
     #[test]
-    fn bridge_error_message_reports_stream_incomplete_in_english() {
+    fn bridge_error_message_reports_stream_incomplete_in_chinese() {
         let bridge = UpstreamResponseBridgeResult {
             stream_terminal_seen: false,
             ..UpstreamResponseBridgeResult::default()
         };
         assert_eq!(
             bridge.error_message(true).as_deref(),
-            Some("stream disconnected before completion")
+            Some("网络抖动")
         );
     }
 }
