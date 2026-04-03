@@ -4,8 +4,8 @@
   "version": "0.1.15",
   "identifier": "com.codexmanager.desktop",
   "build": {
-    "beforeDevCommand": "node scripts/before-build.mjs dev:desktop",
-    "beforeBuildCommand": "node scripts/before-build.mjs build:desktop",
+    "beforeDevCommand": "node src-tauri/scripts/before-build.mjs dev:desktop",
+    "beforeBuildCommand": "node src-tauri/scripts/before-build.mjs build:desktop",
     "devUrl": "http://127.0.0.1:3005",
     "frontendDist": "../out"
   },
