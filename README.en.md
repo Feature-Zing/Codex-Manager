@@ -87,13 +87,15 @@ If this project has been helpful to you, you are welcome to support the author.
 | Build locally, package, release, and run scripts | [Build, Release, and Script Guide](docs/release/构建发布与脚本说明.md) |
 
 ## Recent Changes
-  - Current latest version: `v0.1.15` (2026-04-03)
-  - This release mainly closes out around two themes: streaming gateway stability and account operation UX. It fixes cases where tool-call arguments could be overwritten, dropped, or cleared by empty `edits` during OpenAI -> Anthropic SSE bridging, and it also aliases `chat.completion` usage fields to OpenAI `prompt/completion tokens`, making tool calls and usage stats more reliable.
-  - Error reporting has been tightened up as well: upstream raw error messages are preserved whenever possible, stream disconnects are surfaced with a clearer "network jitter" style message, and noisy or misleading log prompts are reduced to make troubleshooting easier.
-  - The Accounts page now supports exporting only selected accounts, usage refresh account switching is smoother, and abbreviated token counts now consistently keep two decimal places across the dashboard, logs, and platform key pages.
-  - This round of release alignment is also complete: the workspace, frontend package, Tauri desktop app, runtime guide, and README version notes have all been unified to `0.1.15`.
+  - Current latest version: `v0.1.16` (2026-04-05, pre-release)
+  - This release mainly closes out around `service_tier` observability and log consistency. HTTP and WebSocket request logs now record `fast` only when the client explicitly sends `service_tier`, instead of incorrectly treating platform-key defaults as an explicit request choice.
+  - The gateway trace now includes a `CLIENT_SERVICE_TIER` diagnostic event that records whether the original HTTP or WebSocket request contained `service_tier`, the raw incoming value, and the normalized value used for logging. This makes it much easier to tell client-sent `fast / priority` apart from server-side defaults.
+  - Service-tier display in the logs page is now aligned as well: on-wire `priority` is shown as `fast`, while requests without an explicit tier continue to show `auto`, so HTTP and WebSocket views follow the same rules.
+  - Version alignment for this round is complete too: the workspace, frontend package, Tauri desktop app, lockfile, README, and CHANGELOG have all been updated to `0.1.16`.
 
 ### Recent Commit Summary
+- `b762a65`: fixed `service_tier` log semantics and added raw client-side `service_tier` diagnostics for both HTTP and WebSocket requests.
+- `7e7b76f`: separated leftover formatting-only changes into their own cleanup commit.
 - `be73359`: adjusted abbreviated token displays to keep two decimal places for more stable number formatting across dashboard, logs, and platform key pages.
 - `dfb4494`: merged PR #86, which consolidates fixes for Anthropic SSE tool-call argument compatibility during streaming bridge conversion.
 - `981bc6e`: aliased `chat.completion` usage fields to OpenAI `prompt/completion tokens`, reducing usage accounting mismatches.

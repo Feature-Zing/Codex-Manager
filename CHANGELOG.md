@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-04-05
+
+### Added
+- 网关 trace 新增 `CLIENT_SERVICE_TIER` 事件，记录 HTTP / WS 原始请求是否显式携带 `service_tier`、原始值以及日志归一化值，便于快速区分客户端显式 `fast` 与平台 Key 默认服务等级。
+
+### Fixed
+- 修复 HTTP 与 WS 请求日志中 `service_tier` 口径不一致的问题；现在仅当客户端请求自己显式携带 `service_tier` 时才记录 `fast`，不再把平台 Key 默认值误记成请求显式开启。
+- 修复日志页服务等级展示与网关 on-wire 值不一致的问题；`priority` 会统一展示为 `fast`，未显式携带服务等级的请求继续显示为 `auto`。
+
+### Changed
+- 发布版本提升到 `0.1.16`，同步更新 workspace、前端包、Tauri 桌面端、锁文件、README 与 CHANGELOG 的版本说明。
+
 ## [0.1.15] - 2026-04-03
 
 ### Changed
@@ -162,7 +174,8 @@
 ### Changed
 - 账号管理页操作区整合为单一“账号操作”下拉菜单，替代右侧多按钮堆叠，界面更简洁。
 
-[Unreleased]: https://github.com/qxcnm/Codex-Manager/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/qxcnm/Codex-Manager/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.16
 [0.1.15]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.15
 [0.1.14]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.14
 [0.1.13]: https://github.com/qxcnm/Codex-Manager/releases/tag/v0.1.13
