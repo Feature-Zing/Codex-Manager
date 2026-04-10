@@ -586,6 +586,7 @@ pub struct RequestLogSummary {
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub final_upstream_attempt_duration_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,

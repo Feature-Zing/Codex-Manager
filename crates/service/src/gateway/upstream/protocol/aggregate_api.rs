@@ -952,6 +952,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 status_code
             };
             let usage = bridge.usage;
+            let final_upstream_attempt_duration_ms = attempt_started_at.elapsed().as_millis();
 
             super::super::super::record_gateway_request_outcome(
                 path,
@@ -966,7 +967,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 final_error.as_deref(),
                 started_at.elapsed().as_millis(),
             );
-            super::super::super::write_request_log(
+            super::super::super::request_log::write_request_log_with_attempts(
                 storage,
                 super::super::super::request_log::RequestLogTraceContext {
                     trace_id: Some(trace_id),
@@ -996,6 +997,8 @@ pub(in super::super) fn proxy_aggregate_request(
                 },
                 final_error.as_deref(),
                 Some(started_at.elapsed().as_millis()),
+                Some(final_upstream_attempt_duration_ms),
+                None,
             );
             succeeded = true;
             break;

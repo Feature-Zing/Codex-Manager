@@ -126,6 +126,7 @@ pub struct RequestLog {
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub final_upstream_attempt_duration_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -567,6 +568,11 @@ impl Storage {
             include_str!("../../migrations/045_accounts_preferred.sql"),
             |s| s.ensure_account_meta_columns(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "044_request_logs_final_upstream_attempt_duration",
+            include_str!("../../migrations/044_request_logs_final_upstream_attempt_duration.sql"),
+            |s| s.ensure_request_log_final_upstream_attempt_duration_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -574,6 +580,7 @@ impl Storage {
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
+        self.ensure_request_log_final_upstream_attempt_duration_column()?;
         Ok(())
     }
 

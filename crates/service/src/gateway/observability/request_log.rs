@@ -277,6 +277,7 @@ pub(crate) fn write_request_log(
         error,
         duration_ms,
         None,
+        None,
     );
 }
 
@@ -306,6 +307,7 @@ pub(crate) fn write_request_log_with_attempts(
     usage: RequestLogUsage,
     error: Option<&str>,
     duration_ms: Option<u128>,
+    final_upstream_attempt_duration_ms: Option<u128>,
     attempted_account_ids: Option<&[String]>,
 ) {
     let original_path = trace_context.original_path.unwrap_or(request_path);
@@ -330,6 +332,8 @@ pub(crate) fn write_request_log_with_attempts(
     let total_tokens = normalize_token(usage.total_tokens);
     let reasoning_output_tokens = normalize_token(usage.reasoning_output_tokens);
     let duration_ms = normalize_duration_ms(duration_ms);
+    let final_upstream_attempt_duration_ms =
+        normalize_duration_ms(final_upstream_attempt_duration_ms);
     let created_at = now_ts();
     let estimated_cost_usd =
         estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
@@ -419,6 +423,7 @@ pub(crate) fn write_request_log_with_attempts(
             aggregate_api_url: trace_context.aggregate_api_url.map(str::to_string),
             status_code: status_code.map(|v| i64::from(v)),
             duration_ms,
+            final_upstream_attempt_duration_ms,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

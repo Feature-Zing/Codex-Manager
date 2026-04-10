@@ -144,6 +144,7 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         aggregate_api_url: Some("https://api.example.com/v1".to_string()),
         status_code: Some(502),
         duration_ms: Some(1450),
+        final_upstream_attempt_duration_ms: Some(320),
         input_tokens: Some(10),
         cached_input_tokens: Some(0),
         output_tokens: Some(3),
@@ -168,6 +169,7 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "requestPath",
         "upstreamUrl",
         "durationMs",
+        "finalUpstreamAttemptDurationMs",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
@@ -227,6 +229,7 @@ fn request_log_list_result_serialization_includes_pagination_fields() {
             aggregate_api_url: Some("https://api.example.com/v1".to_string()),
             status_code: Some(200),
             duration_ms: Some(1200),
+            final_upstream_attempt_duration_ms: Some(480),
             input_tokens: Some(10),
             cached_input_tokens: Some(1),
             output_tokens: Some(2),

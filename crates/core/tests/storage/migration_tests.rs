@@ -279,6 +279,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .has_column("request_logs", "effective_service_tier")
         .expect("check request_logs.effective_service_tier"));
     assert!(storage
+        .has_column("request_logs", "final_upstream_attempt_duration_ms")
+        .expect("check request_logs.final_upstream_attempt_duration_ms"));
+    assert!(storage
         .has_column("app_settings", "value")
         .expect("check app_settings.value"));
     assert!(storage

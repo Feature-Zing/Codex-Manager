@@ -1059,6 +1059,10 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.responseTimeMs ??
       source.response_time_ms
   );
+  const finalUpstreamAttemptDurationMs = toNullableNumber(
+    source.finalUpstreamAttemptDurationMs ??
+      source.final_upstream_attempt_duration_ms
+  );
 
   return {
     id,
@@ -1111,6 +1115,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.estimatedCostUsd ?? source.estimated_cost_usd
     ),
     durationMs,
+    finalUpstreamAttemptDurationMs,
     error: asString(source.error),
     createdAt,
   };

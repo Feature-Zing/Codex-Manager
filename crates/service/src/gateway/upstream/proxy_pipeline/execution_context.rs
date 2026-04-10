@@ -289,6 +289,7 @@ impl<'a> GatewayUpstreamExecutionContext<'a> {
             usage,
             error,
             Some(elapsed_ms),
+            None,
             attempted_account_ids,
         );
         super::super::super::trace_log::log_request_final(

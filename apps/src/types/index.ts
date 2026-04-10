@@ -271,6 +271,7 @@ export interface RequestLog {
   reasoningOutputTokens: number | null;
   estimatedCostUsd: number | null;
   durationMs: number | null;
+  finalUpstreamAttemptDurationMs: number | null;
   error: string;
   createdAt: number | null;
 }

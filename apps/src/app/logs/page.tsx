@@ -210,6 +210,13 @@ function formatDuration(value: number | null): string {
   return `${Math.round(value)}ms`;
 }
 
+function resolvePreDelayDurationMs(log: RequestLog): number | null {
+  if (log.durationMs == null || log.finalUpstreamAttemptDurationMs == null) {
+    return null;
+  }
+  return Math.max(0, log.durationMs - log.finalUpstreamAttemptDurationMs);
+}
+
 /**
  * 函数 `formatTokenAmount`
  *
@@ -1059,6 +1066,52 @@ function GatewayTooltipCell({
   );
 }
 
+function RequestDurationCell({ log }: { log: RequestLog }) {
+  const { t } = useI18n();
+  const totalDurationMs = log.durationMs;
+  const finalAttemptDurationMs = log.finalUpstreamAttemptDurationMs;
+  const preDelayDurationMs = resolvePreDelayDurationMs(log);
+  const hasBreakdown = finalAttemptDurationMs != null;
+
+  return (
+    <GatewayTooltipCell
+      preview={
+        <div className="font-mono text-primary">
+          {formatDuration(totalDurationMs)}
+        </div>
+      }
+      content={
+        <div className="flex min-w-[180px] flex-col gap-2">
+          <div className="space-y-0.5">
+            <div className="text-[10px] text-background/70">{t("总耗时")}</div>
+            <div className="font-mono text-[11px]">
+              {formatDuration(totalDurationMs)}
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-[10px] text-background/70">{t("最终命中耗时")}</div>
+            <div className="font-mono text-[11px]">
+              {formatDuration(finalAttemptDurationMs)}
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-[10px] text-background/70">{t("前置耗时")}</div>
+            <div className="font-mono text-[11px]">
+              {formatDuration(preDelayDurationMs)}
+            </div>
+          </div>
+          {!hasBreakdown ? (
+            <div className="text-[10px] leading-4 text-background/70">
+              {t("当前日志未记录耗时拆分，需使用已升级的网关重新产生新日志。")}
+            </div>
+          ) : null}
+        </div>
+      }
+      contentClassName="max-w-sm"
+    />
+  );
+}
+
 /**
  * 函数 `ModelEffortCell`
  *
@@ -1709,8 +1762,8 @@ function LogsPageContent() {
                     <TableCell className="px-4 py-3 align-top">
                       {getStatusBadge(resolveDisplayedStatusCode(log))}
                     </TableCell>
-                    <TableCell className="px-4 py-3 font-mono text-primary">
-                      {formatDuration(log.durationMs)}
+                    <TableCell className="px-4 py-3">
+                      <RequestDurationCell log={log} />
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">
                       <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">
