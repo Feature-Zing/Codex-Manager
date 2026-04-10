@@ -94,8 +94,14 @@ fn build_upstream_url(base_url: &str, effective_path: &str) -> Result<reqwest::U
     let (path_part, query_part) = trimmed_path
         .split_once('?')
         .map_or((trimmed_path, None), |(path, query)| (path, Some(query)));
-    let suffix = path_part.trim_start_matches('/');
+    let mut suffix = path_part.trim_start_matches('/');
     let base_path = url.path().trim_end_matches('/').to_string();
+    if base_path.ends_with("/v1") {
+        suffix = suffix.strip_prefix("v1/").unwrap_or(suffix);
+        if suffix == "v1" {
+            suffix = "";
+        }
+    }
     let combined_path = if base_path.is_empty() || base_path == "/" {
         format!("/{}", suffix)
     } else if suffix.is_empty() {
@@ -1315,6 +1321,13 @@ mod tests {
             url.as_str(),
             "https://api.example.com/v1/messages?beta=true"
         );
+    }
+
+    #[test]
+    fn build_upstream_url_deduplicates_v1_prefix_for_gateway_requests() {
+        let url = build_upstream_url("https://api.glen.cc.cd/v1", "/v1/responses")
+            .expect("build upstream url");
+        assert_eq!(url.as_str(), "https://api.glen.cc.cd/v1/responses");
     }
 
     /// 函数 `final_error_promotes_success_status_to_bad_gateway`
