@@ -73,6 +73,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let provider_type = super::string_param(req, "providerType");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
+            let status = super::string_param(req, "status");
             let url = super::string_param(req, "url");
             let key = super::string_param(req, "key");
             let auth_type = super::string_param(req, "authType");
@@ -93,6 +94,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 provider_type,
                 supplier_name,
                 sort,
+                status,
                 auth_type,
                 auth_custom_enabled,
                 auth_params,
@@ -233,5 +235,19 @@ mod tests {
         ))
         .expect("response");
         assert_ne!(error_message(&with_api_id), "aggregate api id required");
+    }
+
+    #[test]
+    fn aggregate_api_update_accepts_status_param() {
+        let resp = try_handle(&rpc_request(
+            "aggregateApi/update",
+            serde_json::json!({
+                "id": "ag_test",
+                "supplierName": "codex",
+                "status": "disabled"
+            }),
+        ))
+        .expect("response");
+        assert_ne!(error_message(&resp), "aggregate api id required");
     }
 }

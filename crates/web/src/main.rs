@@ -275,7 +275,25 @@ fn resolve_web_root() -> PathBuf {
         }
         return exe_dir().join(p);
     }
+    if let Some(source_root) = detect_source_root_from_exe_dir() {
+        let source_out = source_root.join("apps").join("out");
+        if ensure_index_file(source_out.join("index.html").as_path()) {
+            return source_out;
+        }
+    }
     exe_dir().join("web")
+}
+
+fn detect_source_root_from_exe_dir() -> Option<PathBuf> {
+    for candidate in exe_dir().ancestors() {
+        if candidate.join("Cargo.toml").is_file()
+            && candidate.join("apps").is_dir()
+            && candidate.join("apps").join("out").join("index.html").is_file()
+        {
+            return Some(candidate.to_path_buf());
+        }
+    }
+    None
 }
 
 /// 函数 `exe_dir`
@@ -690,6 +708,15 @@ mod tests {
             browser_open_addr("192.168.1.8:48761").as_deref(),
             Some("192.168.1.8:48761")
         );
+    }
+
+    #[test]
+    fn detect_source_root_from_debug_target_layout() {
+        let source_root =
+            detect_source_root_from_exe_dir().expect("source root should be detected in dev layout");
+        assert!(source_root.join("Cargo.toml").is_file());
+        assert!(source_root.join("apps").is_dir());
+        assert!(source_root.join("apps").join("out").join("index.html").is_file());
     }
 
     /// 函数 `runtime_info_reports_web_gateway_capabilities`

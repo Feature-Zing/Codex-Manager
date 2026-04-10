@@ -228,11 +228,24 @@ fn normalize_action_override(
     }
 }
 
+fn normalize_aggregate_api_status(value: Option<String>) -> Result<String, String> {
+    match value {
+        Some(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+            "active" | "enabled" => Ok("active".to_string()),
+            "disabled" | "inactive" => Ok("disabled".to_string()),
+            other => Err(format!("unsupported aggregate api status: {other}")),
+        },
+        None => Ok("active".to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use codexmanager_core::storage::AggregateApi;
 
-    use super::{action_path_or_default, normalize_action_override};
+    use super::{
+        action_path_or_default, normalize_action_override, normalize_aggregate_api_status,
+    };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
@@ -271,6 +284,23 @@ mod tests {
         let api = aggregate_api_with_action(Some(""));
         let path = action_path_or_default(&api, "/v1/messages?beta=true");
         assert_eq!(path, "/v1/messages?beta=true");
+    }
+
+    #[test]
+    fn aggregate_api_status_defaults_to_active() {
+        assert_eq!(
+            normalize_aggregate_api_status(None).expect("default status"),
+            "active"
+        );
+    }
+
+    #[test]
+    fn aggregate_api_status_accepts_disabled_aliases() {
+        assert_eq!(
+            normalize_aggregate_api_status(Some("inactive".to_string()))
+                .expect("normalize inactive"),
+            "disabled"
+        );
     }
 }
 
@@ -959,6 +989,7 @@ pub(crate) fn update_aggregate_api(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    status: Option<String>,
     auth_type: Option<String>,
     auth_custom_enabled: Option<bool>,
     auth_params: Option<serde_json::Value>,
@@ -1005,6 +1036,12 @@ pub(crate) fn update_aggregate_api(
     if sort.is_some() {
         storage
             .update_aggregate_api_sort(api_id, normalize_sort(sort))
+            .map_err(|err| err.to_string())?;
+    }
+    if let Some(status) = status {
+        let normalized_status = normalize_aggregate_api_status(Some(status))?;
+        storage
+            .update_aggregate_api_status(api_id, normalized_status.as_str())
             .map_err(|err| err.to_string())?;
     }
     if let Some(url) = url {

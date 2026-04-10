@@ -1051,6 +1051,17 @@ pub(in super::super) fn proxy_aggregate_request(
 #[cfg(test)]
 mod bridge_tests {
     use super::*;
+    use codexmanager_core::storage::Storage;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn new_test_db_path(prefix: &str) -> PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{now}.db"))
+    }
 
     /// 函数 `candidate`
     ///
@@ -1200,6 +1211,31 @@ mod bridge_tests {
             std::env::remove_var("CODEXMANAGER_ROUTE_STRATEGY");
         }
         crate::gateway::reload_runtime_config_from_env();
+    }
+
+    #[test]
+    fn resolve_aggregate_api_rotation_candidates_skips_disabled_items() {
+        let _guard = crate::test_env_guard();
+        let db_path = new_test_db_path("aggregate-api-status-filter");
+        let storage = Storage::open(&db_path).expect("open storage");
+        storage.init().expect("init storage");
+
+        let enabled = candidate("agg-enabled", 0);
+        let mut disabled = candidate("agg-disabled", 1);
+        disabled.status = "disabled".to_string();
+
+        storage
+            .insert_aggregate_api(&enabled)
+            .expect("insert enabled aggregate api");
+        storage
+            .insert_aggregate_api(&disabled)
+            .expect("insert disabled aggregate api");
+
+        let candidates = resolve_aggregate_api_rotation_candidates(&storage, "openai_compat", None)
+            .expect("resolve candidates");
+        assert_eq!(ids(&candidates), vec!["agg-enabled"]);
+
+        let _ = std::fs::remove_file(db_path);
     }
 }
 

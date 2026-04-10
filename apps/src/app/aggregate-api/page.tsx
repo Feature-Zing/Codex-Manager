@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -100,6 +101,10 @@ function getTestBadge(api: AggregateApi, t: TranslateFn) {
     );
   }
   return <Badge variant="secondary">{t("未测试")}</Badge>;
+}
+
+function isAggregateApiEnabled(api: AggregateApi) {
+  return String(api.status || "").trim().toLowerCase() === "active";
 }
 
 export default function AggregateApiPage() {
@@ -210,6 +215,25 @@ export default function AggregateApiPage() {
     },
     onError: (error: unknown) => {
       toast.error(`${t("测试")} ${t("失败")}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: async ({ api, enabled }: { api: AggregateApi; enabled: boolean }) => {
+      await accountClient.updateAggregateApi(api.id, {
+        supplierName: api.supplierName || "",
+        status: enabled ? "active" : "disabled",
+      });
+    },
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
+        queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+      ]);
+      toast.success(variables.enabled ? t("启用") : t("禁用"));
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("操作失败")}: ${error instanceof Error ? error.message : String(error)}`);
     },
   });
 
@@ -480,6 +504,7 @@ export default function AggregateApiPage() {
                   <TableHead className="w-[84px] text-center">{t("类型")}</TableHead>
                   <TableHead className="w-[148px]">{t("密钥")}</TableHead>
                   <TableHead className="w-[64px] text-center">{t("顺序")}</TableHead>
+                  <TableHead className="w-[112px]">{t("状态")}</TableHead>
                   <TableHead className="w-[130px]">{t("测试连通性")}</TableHead>
                   <TableHead className="text-center">{t("操作")}</TableHead>
                 </TableRow>
@@ -503,6 +528,9 @@ export default function AggregateApiPage() {
                       <TableCell>
                         <Skeleton className="h-6 w-20 rounded-full" />
                       </TableCell>
+                      <TableCell>
+                        <Skeleton className="h-6 w-20 rounded-full" />
+                      </TableCell>
                       <TableCell className="text-center">
                         <Skeleton className="mx-auto h-8 w-8" />
                       </TableCell>
@@ -510,7 +538,7 @@ export default function AggregateApiPage() {
                   ))
                 ) : filteredAggregateApis.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-48 text-center">
+                    <TableCell colSpan={7} className="h-48 text-center">
                       <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         <ShieldCheck className="h-8 w-8 opacity-20" />
                         <p>
@@ -533,6 +561,10 @@ export default function AggregateApiPage() {
                       api.createdAt,
                       t("未知时间"),
                     );
+                    const isEnabled = isAggregateApiEnabled(api);
+                    const isToggling =
+                      toggleStatusMutation.isPending &&
+                      toggleStatusMutation.variables?.api.id === api.id;
 
                     return (
                       <TableRow key={api.id} className="group">
@@ -654,6 +686,21 @@ export default function AggregateApiPage() {
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           {api.sort}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap align-middle">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              className="scale-75"
+                              checked={isEnabled}
+                              disabled={!isServiceReady || isToggling}
+                              onCheckedChange={(enabled) =>
+                                toggleStatusMutation.mutate({ api, enabled })
+                              }
+                            />
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {isEnabled ? t("启用") : t("禁用")}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap align-middle">
                           <div className="flex flex-col items-start gap-1">

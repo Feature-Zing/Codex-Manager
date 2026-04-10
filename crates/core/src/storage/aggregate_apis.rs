@@ -235,6 +235,14 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_status(&self, api_id: &str, status: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            (status, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
     /// 函数 `delete_aggregate_api`
     ///
     /// 作者: gaohongshun
@@ -413,6 +421,12 @@ impl Storage {
             "UPDATE aggregate_apis
              SET sort = COALESCE(sort, 0)
              WHERE sort IS NULL",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET status = COALESCE(NULLIF(TRIM(status), ''), 'active')
+             WHERE status IS NULL OR TRIM(status) = ''",
             [],
         )?;
         Ok(())
