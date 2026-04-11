@@ -2177,6 +2177,11 @@ export default function SettingsPage() {
                   intervalKey: "gatewayKeepaliveIntervalSecs",
                 },
                 {
+                  label: "聚合 API 探活",
+                  enabledKey: "aggregateApiProbeEnabled",
+                  intervalKey: "aggregateApiProbeIntervalSecs",
+                },
+                {
                   label: "令牌刷新轮询",
                   enabledKey: "tokenRefreshPollingEnabled",
                   intervalKey: "tokenRefreshPollIntervalSecs",

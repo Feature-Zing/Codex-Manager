@@ -69,6 +69,13 @@ import {
 
 type StatusFilter = "all" | "2xx" | "4xx" | "5xx";
 type LogsTab = "requests" | "gateway-errors";
+type SourceFilter =
+  | "all"
+  | "user"
+  | "gateway_keepalive"
+  | "aggregate_api_probe"
+  | "ui_model_refresh"
+  | "aggregate_api_model_list";
 type TranslateFn = (message: string, values?: Record<string, string | number>) => string;
 
 /**
@@ -128,18 +135,19 @@ function SummaryCard({
   description,
   icon: Icon,
   toneClass,
+  onClick,
+  active = false,
 }: {
   title: string;
   value: string;
   description: string;
   icon: LucideIcon;
   toneClass: string;
+  onClick?: () => void;
+  active?: boolean;
 }) {
-  return (
-    <Card
-      size="sm"
-      className="glass-card border-none shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5"
-    >
+  const content = (
+    <>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1.5">
         <CardTitle className="text-[13px] font-medium text-muted-foreground">
           {title}
@@ -159,7 +167,32 @@ function SummaryCard({
         </div>
         <p className="text-[11px] text-muted-foreground">{description}</p>
       </CardContent>
-    </Card>
+    </>
+  );
+
+  if (!onClick) {
+    return (
+      <Card
+        size="sm"
+        className="glass-card border-none shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5"
+      >
+        {content}
+      </Card>
+    );
+  }
+
+  return (
+    <button type="button" onClick={onClick} className="block text-left">
+      <Card
+        size="sm"
+        className={cn(
+          "glass-card border-none shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer",
+          active && "ring-1 ring-primary/40 shadow-md",
+        )}
+      >
+        {content}
+      </Card>
+    </button>
   );
 }
 
@@ -643,6 +676,40 @@ function RequestTypeBadge({ requestType }: { requestType: string }) {
   );
 }
 
+function resolveLogSourceLabel(source: string, t: TranslateFn): string {
+  switch (String(source || "").trim().toLowerCase()) {
+    case "gateway_keepalive":
+      return t("网关保活");
+    case "aggregate_api_probe":
+      return t("聚合探活");
+    case "ui_model_refresh":
+      return t("模型刷新");
+    case "aggregate_api_model_list":
+      return t("聚合模型列表");
+    case "user":
+    default:
+      return t("用户请求");
+  }
+}
+
+function RequestSourceBadge({ source }: { source: string }) {
+  const { t } = useI18n();
+  const normalized = String(source || "").trim().toLowerCase();
+  const toneClass =
+    normalized === "gateway_keepalive"
+      ? "border-sky-500/20 bg-sky-500/10 text-sky-500"
+      : normalized === "aggregate_api_probe"
+        ? "border-orange-500/20 bg-orange-500/10 text-orange-500"
+        : normalized === "ui_model_refresh" || normalized === "aggregate_api_model_list"
+          ? "border-violet-500/20 bg-violet-500/10 text-violet-500"
+          : "border-emerald-500/20 bg-emerald-500/10 text-emerald-500";
+  return (
+    <Badge className={cn("h-5 rounded-full px-1.5 text-[10px] font-medium", toneClass)}>
+      {resolveLogSourceLabel(normalized, t)}
+    </Badge>
+  );
+}
+
 function ServiceTierBadge({ serviceTier }: { serviceTier: string }) {
   const normalized = resolveDisplayServiceTier(serviceTier);
   const toneClass =
@@ -908,7 +975,7 @@ function RequestRouteInfoCell({ log }: { log: RequestLog }) {
   const recordedPath = String(log.path || log.requestPath || "").trim();
   const originalPath = String(log.originalPath || "").trim();
   const adaptedPath = String(log.adaptedPath || "").trim();
-  const upstreamUrl = String(log.upstreamUrl || "").trim();
+  const upstreamUrl = String(log.aggregateApiUrl || log.upstreamUrl || "").trim();
   const upstreamDisplay = resolveUpstreamDisplay(upstreamUrl, t);
   const requestType = normalizeRequestType(log.requestType);
 
@@ -918,6 +985,7 @@ function RequestRouteInfoCell({ log }: { log: RequestLog }) {
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
             <RequestTypeBadge requestType={requestType} />
+            <RequestSourceBadge source={log.source} />
             <span className="font-bold text-primary">{log.method || "-"}</span>
           </div>
           <span className="max-w-[200px] truncate text-muted-foreground">
@@ -927,6 +995,12 @@ function RequestRouteInfoCell({ log }: { log: RequestLog }) {
       </TooltipTrigger>
       <TooltipContent className="max-w-md">
         <div className="flex min-w-[280px] flex-col gap-2">
+          <div className="space-y-0.5">
+            <div className="text-[10px] text-background/70">{t("来源")}</div>
+            <div className="font-mono text-[11px]">
+              {resolveLogSourceLabel(log.source, t)}
+            </div>
+          </div>
           <div className="space-y-0.5">
             <div className="text-[10px] text-background/70">{t("请求类型")}</div>
             <div className="font-mono text-[11px] uppercase">{requestType}</div>
@@ -1217,6 +1291,11 @@ function buildSummaryPlaceholder(logs: RequestLog[]): RequestLogFilterSummary {
     (sum, item) => sum + Math.max(0, item.estimatedCostUsd || 0),
     0
   );
+  const sourceCounts = new Map<string, number>();
+  for (const item of logs) {
+    const source = String(item.source || "user").trim().toLowerCase() || "user";
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+  }
 
   return {
     totalCount: logs.length,
@@ -1225,6 +1304,9 @@ function buildSummaryPlaceholder(logs: RequestLog[]): RequestLogFilterSummary {
     errorCount,
     totalTokens,
     totalCostUsd,
+    sourceBreakdown: Array.from(sourceCounts.entries())
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count || a.source.localeCompare(b.source)),
   };
 }
 
@@ -1251,6 +1333,7 @@ function LogsPageContent() {
   const routeQuery = searchParams.get("query") || "";
   const [search, setSearch] = useState(routeQuery);
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [pageSize, setPageSize] = useState("10");
   const [page, setPage] = useState(1);
   const [gatewayPageSize, setGatewayPageSize] = useState("10");
@@ -1271,7 +1354,11 @@ function LogsPageContent() {
   const startupApiKeys = startupSnapshot?.apiKeys || [];
   const startupRequestLogs = startupSnapshot?.requestLogs || [];
   const canUseStartupLogsPlaceholder =
-    !routeQuery.trim() && !search.trim() && filter === "all" && page === 1;
+    !routeQuery.trim() &&
+    !search.trim() &&
+    filter === "all" &&
+    sourceFilter === "all" &&
+    page === 1;
   const hasStartupLogsSnapshot =
     canUseStartupLogsPlaceholder && startupRequestLogs.length > 0;
 
@@ -1312,11 +1399,12 @@ function LogsPageContent() {
   });
 
   const { data: logsResult, isLoading, isError: isLogsError } = useQuery({
-    queryKey: ["logs", "list", search, filter, page, pageSizeNumber],
+    queryKey: ["logs", "list", search, filter, sourceFilter, page, pageSizeNumber],
     queryFn: () =>
       serviceClient.listRequestLogs({
         query: search,
         statusFilter: filter,
+        sourceFilter,
         page,
         pageSize: pageSizeNumber,
       }),
@@ -1336,11 +1424,12 @@ function LogsPageContent() {
   });
 
   const { data: summaryResult, isError: isSummaryError } = useQuery({
-    queryKey: ["logs", "summary", search, filter],
+    queryKey: ["logs", "summary", search, filter, sourceFilter],
     queryFn: () =>
       serviceClient.getRequestLogSummary({
         query: search,
         statusFilter: filter,
+        sourceFilter,
       }),
     enabled: areLogQueriesEnabled && isPageActive,
     refetchInterval: 5000,
@@ -1440,7 +1529,10 @@ function LogsPageContent() {
     successCount: 0,
     errorCount: 0,
     totalTokens: 0,
+    totalCostUsd: 0,
+    sourceBreakdown: [],
   };
+  const topSources = summary.sourceBreakdown.slice(0, 4);
   const totalPages = Math.max(
     1,
     Math.ceil((logsResult?.total || 0) / pageSizeNumber),
@@ -1483,7 +1575,9 @@ function LogsPageContent() {
         : filter === "4xx"
           ? t("客户端错误")
           : t("服务端错误");
-  const compactMetaText = `${summary.filteredCount}/${summary.totalCount} ${t("条")} · ${currentFilterLabel} · ${
+  const currentSourceFilterLabel =
+    sourceFilter === "all" ? t("全部来源") : resolveLogSourceLabel(sourceFilter, t);
+  const compactMetaText = `${summary.filteredCount}/${summary.totalCount} ${t("条")} · ${currentFilterLabel} · ${currentSourceFilterLabel} · ${
     serviceStatus.connected ? t("5 秒刷新") : t("服务未连接")
   }`;
 
@@ -1555,7 +1649,7 @@ function LogsPageContent() {
 
         <TabsContent value="requests" className="space-y-5">
           <Card className="glass-card border-none shadow-md backdrop-blur-md">
-            <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-center">
+            <CardContent className="grid gap-3 pt-0 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:items-center">
               <div className="min-w-0">
                 <Input
                   placeholder={t("搜索路径、账号或密钥...")}
@@ -1585,6 +1679,29 @@ function LogsPageContent() {
                     {item.toUpperCase()}
                   </button>
                 ))}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                  <Select
+                    value={sourceFilter}
+                    onValueChange={(value) => {
+                      setSourceFilter((value || "all") as SourceFilter);
+                      setPage(1);
+                    }}
+                  >
+                  <SelectTrigger className="glass-card h-10 min-w-[150px] rounded-xl text-xs">
+                    <SelectValue>{currentSourceFilterLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("全部来源")}</SelectItem>
+                    <SelectItem value="user">{t("用户请求")}</SelectItem>
+                    <SelectItem value="gateway_keepalive">{t("网关保活")}</SelectItem>
+                    <SelectItem value="aggregate_api_probe">{t("聚合探活")}</SelectItem>
+                    <SelectItem value="ui_model_refresh">{t("模型刷新")}</SelectItem>
+                    <SelectItem value="aggregate_api_model_list">
+                      {t("聚合模型列表")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Button
@@ -1645,6 +1762,30 @@ function LogsPageContent() {
               toneClass="bg-amber-500/12 text-amber-500"
             />
           </div>
+
+          {topSources.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {topSources.map((item) => (
+                <SummaryCard
+                  key={item.source}
+                  title={resolveLogSourceLabel(item.source, t)}
+                  value={`${item.count}`}
+                  description={t("点击切换到该来源")}
+                  icon={Database}
+                  toneClass="bg-sky-500/12 text-sky-500"
+                  active={sourceFilter === item.source}
+                  onClick={() => {
+                    setSourceFilter((current) =>
+                      current === item.source
+                        ? "all"
+                        : (item.source as SourceFilter),
+                    );
+                    setPage(1);
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
 
           <Card className="glass-card overflow-hidden border-none gap-0 py-0 shadow-xl backdrop-blur-md">
             <CardHeader className="flex min-h-1 items-center border-b border-border/40 bg-[var(--table-section-bg)] py-3">

@@ -64,12 +64,13 @@ impl Storage {
     pub fn insert_request_log(&self, log: &RequestLog) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO request_logs (
-                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
+                trace_id, source, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
                 method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, final_upstream_attempt_duration_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 &log.trace_id,
+                &log.source,
                 &log.key_id,
                 &log.account_id,
                 &log.initial_account_id,
@@ -120,12 +121,13 @@ impl Storage {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO request_logs (
-                trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
+                trace_id, source, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
                 method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, final_upstream_attempt_duration_ms, error, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
             params![
                 &log.trace_id,
+                &log.source,
                 &log.key_id,
                 &log.account_id,
                 &log.initial_account_id,
@@ -197,8 +199,13 @@ impl Storage {
     ///
     /// # 返回
     /// 返回函数执行结果
-    pub fn list_request_logs(&self, query: Option<&str>, limit: i64) -> Result<Vec<RequestLog>> {
-        self.list_request_logs_paginated(query, None, 0, limit)
+    pub fn list_request_logs(
+        &self,
+        query: Option<&str>,
+        source_filter: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<RequestLog>> {
+        self.list_request_logs_paginated(query, None, source_filter, 0, limit)
     }
 
     /// 函数 `list_request_logs_paginated`
@@ -220,16 +227,18 @@ impl Storage {
         &self,
         query: Option<&str>,
         status_filter: Option<&str>,
+        source_filter: Option<&str>,
         offset: i64,
         limit: i64,
     ) -> Result<Vec<RequestLog>> {
         let normalized_limit = normalize_request_log_limit(limit);
         let normalized_offset = offset.max(0);
         let include_account_lookup = self.has_table("accounts")?;
-        let filters = build_request_log_filters(query, status_filter, include_account_lookup);
+        let filters =
+            build_request_log_filters(query, status_filter, source_filter, include_account_lookup);
         let sql = format!(
             "SELECT
-                r.trace_id, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json,
+                r.trace_id, r.source, r.key_id, r.account_id, r.initial_account_id, r.attempted_account_ids_json, r.initial_aggregate_api_id, r.attempted_aggregate_api_ids_json,
                 r.request_path, r.original_path, r.adapted_path,
                 r.method, r.request_type, r.model, r.reasoning_effort, r.service_tier, r.effective_service_tier, r.response_adapter, r.upstream_url, r.aggregate_api_supplier_name, r.aggregate_api_url, r.status_code, r.duration_ms, r.final_upstream_attempt_duration_ms,
                 t.input_tokens, t.cached_input_tokens, t.output_tokens, t.total_tokens, t.reasoning_output_tokens, t.estimated_cost_usd,
@@ -273,9 +282,11 @@ impl Storage {
         &self,
         query: Option<&str>,
         status_filter: Option<&str>,
+        source_filter: Option<&str>,
     ) -> Result<i64> {
         let include_account_lookup = self.has_table("accounts")?;
-        let filters = build_request_log_filters(query, status_filter, include_account_lookup);
+        let filters =
+            build_request_log_filters(query, status_filter, source_filter, include_account_lookup);
         let sql = format!(
             "SELECT COUNT(1)
              FROM request_logs r
@@ -308,9 +319,11 @@ impl Storage {
         &self,
         query: Option<&str>,
         status_filter: Option<&str>,
+        source_filter: Option<&str>,
     ) -> Result<RequestLogQuerySummary> {
         let include_account_lookup = self.has_table("accounts")?;
-        let filters = build_request_log_filters(query, status_filter, include_account_lookup);
+        let filters =
+            build_request_log_filters(query, status_filter, source_filter, include_account_lookup);
         let sql = format!(
             "SELECT
                 COUNT(1),
@@ -346,6 +359,35 @@ impl Storage {
                     estimated_cost_usd: row.get(4)?,
                 })
             })
+    }
+
+    pub fn summarize_request_logs_by_source(
+        &self,
+        query: Option<&str>,
+        status_filter: Option<&str>,
+        source_filter: Option<&str>,
+    ) -> Result<Vec<(String, i64)>> {
+        let include_account_lookup = self.has_table("accounts")?;
+        let filters =
+            build_request_log_filters(query, status_filter, source_filter, include_account_lookup);
+        let sql = format!(
+            "SELECT LOWER(IFNULL(r.source, 'user')) AS source_name, COUNT(1)
+             FROM request_logs r
+             {account_join}
+             LEFT JOIN request_token_stats t ON t.request_log_id = r.id
+             {where_clause}
+             GROUP BY LOWER(IFNULL(r.source, 'user'))
+             ORDER BY COUNT(1) DESC, source_name ASC",
+            account_join = account_join_clause(include_account_lookup),
+            where_clause = filters.where_clause
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let mut rows = stmt.query(params_from_iter(filters.params.iter()))?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            out.push((row.get(0)?, row.get(1)?));
+        }
+        Ok(out)
     }
 
     /// 函数 `clear_request_logs`
@@ -402,6 +444,7 @@ impl Storage {
             "CREATE TABLE IF NOT EXISTS request_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trace_id TEXT,
+                source TEXT,
                 key_id TEXT,
                 account_id TEXT,
                 initial_account_id TEXT,
@@ -598,6 +641,15 @@ impl Storage {
         Ok(())
     }
 
+    pub(super) fn ensure_request_log_source_column(&self) -> Result<()> {
+        self.ensure_column("request_logs", "source", "TEXT")?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_source_created_at ON request_logs(source, created_at DESC)",
+            [],
+        )?;
+        Ok(())
+    }
+
     /// 函数 `compact_request_logs_legacy_usage_columns`
     ///
     /// 作者: gaohongshun
@@ -639,6 +691,7 @@ impl Storage {
              CREATE TABLE request_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trace_id TEXT,
+                source TEXT,
                 key_id TEXT,
                 account_id TEXT,
                 initial_account_id TEXT,
@@ -665,12 +718,12 @@ impl Storage {
                 created_at INTEGER NOT NULL
              );
              INSERT INTO request_logs (
-                id, trace_id, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
+                id, trace_id, source, key_id, account_id, initial_account_id, attempted_account_ids_json, initial_aggregate_api_id, attempted_aggregate_api_ids_json,
                 request_path, original_path, adapted_path,
                 method, request_type, model, reasoning_effort, service_tier, effective_service_tier, response_adapter, upstream_url, aggregate_api_supplier_name, aggregate_api_url, status_code, duration_ms, final_upstream_attempt_duration_ms, error, created_at
              )
              SELECT
-                id, trace_id, key_id, account_id, NULL, NULL, NULL, NULL, request_path, original_path, adapted_path,
+                id, trace_id, NULL, key_id, account_id, NULL, NULL, NULL, NULL, request_path, original_path, adapted_path,
                 method, NULL, model, reasoning_effort, NULL, NULL, response_adapter, upstream_url, NULL, NULL, status_code, NULL, NULL, error, created_at
              FROM request_logs_legacy_028;
              DROP TABLE request_logs_legacy_028;",
@@ -696,36 +749,37 @@ impl Storage {
 fn map_request_log_row(row: &Row<'_>) -> Result<RequestLog> {
     Ok(RequestLog {
         trace_id: row.get(0)?,
-        key_id: row.get(1)?,
-        account_id: row.get(2)?,
-        initial_account_id: row.get(3)?,
-        attempted_account_ids_json: row.get(4)?,
-        initial_aggregate_api_id: row.get(5)?,
-        attempted_aggregate_api_ids_json: row.get(6)?,
-        request_path: row.get(7)?,
-        original_path: row.get(8)?,
-        adapted_path: row.get(9)?,
-        method: row.get(10)?,
-        request_type: row.get(11)?,
-        model: row.get(12)?,
-        reasoning_effort: row.get(13)?,
-        service_tier: row.get(14)?,
-        effective_service_tier: row.get(15)?,
-        response_adapter: row.get(16)?,
-        upstream_url: row.get(17)?,
-        aggregate_api_supplier_name: row.get(18)?,
-        aggregate_api_url: row.get(19)?,
-        status_code: row.get(20)?,
-        duration_ms: row.get(21)?,
-        final_upstream_attempt_duration_ms: row.get(22)?,
-        input_tokens: row.get(23)?,
-        cached_input_tokens: row.get(24)?,
-        output_tokens: row.get(25)?,
-        total_tokens: row.get(26)?,
-        reasoning_output_tokens: row.get(27)?,
-        estimated_cost_usd: row.get(28)?,
-        error: row.get(29)?,
-        created_at: row.get(30)?,
+        source: row.get(1)?,
+        key_id: row.get(2)?,
+        account_id: row.get(3)?,
+        initial_account_id: row.get(4)?,
+        attempted_account_ids_json: row.get(5)?,
+        initial_aggregate_api_id: row.get(6)?,
+        attempted_aggregate_api_ids_json: row.get(7)?,
+        request_path: row.get(8)?,
+        original_path: row.get(9)?,
+        adapted_path: row.get(10)?,
+        method: row.get(11)?,
+        request_type: row.get(12)?,
+        model: row.get(13)?,
+        reasoning_effort: row.get(14)?,
+        service_tier: row.get(15)?,
+        effective_service_tier: row.get(16)?,
+        response_adapter: row.get(17)?,
+        upstream_url: row.get(18)?,
+        aggregate_api_supplier_name: row.get(19)?,
+        aggregate_api_url: row.get(20)?,
+        status_code: row.get(21)?,
+        duration_ms: row.get(22)?,
+        final_upstream_attempt_duration_ms: row.get(23)?,
+        input_tokens: row.get(24)?,
+        cached_input_tokens: row.get(25)?,
+        output_tokens: row.get(26)?,
+        total_tokens: row.get(27)?,
+        reasoning_output_tokens: row.get(28)?,
+        estimated_cost_usd: row.get(29)?,
+        error: row.get(30)?,
+        created_at: row.get(31)?,
     })
 }
 
@@ -768,6 +822,7 @@ fn normalize_request_log_limit(value: i64) -> i64 {
 fn build_request_log_filters(
     query: Option<&str>,
     status_filter: Option<&str>,
+    source_filter: Option<&str>,
     include_account_lookup: bool,
 ) -> RequestLogSqlFilters {
     let mut clauses = Vec::new();
@@ -780,6 +835,7 @@ fn build_request_log_filters(
         &mut params,
     );
     append_status_filter_clause(status_filter, &mut clauses, &mut params);
+    append_source_filter_clause(source_filter, &mut clauses, &mut params);
 
     RequestLogSqlFilters {
         where_clause: if clauses.is_empty() {
@@ -854,6 +910,7 @@ fn append_request_log_query_clause(
                 "IFNULL(r.service_tier,'') LIKE ?",
                 "IFNULL(r.effective_service_tier,'') LIKE ?",
                 "IFNULL(r.response_adapter,'') LIKE ?",
+                "IFNULL(r.source,'') LIKE ?",
                 "IFNULL(r.error,'') LIKE ?",
                 "IFNULL(r.key_id,'') LIKE ?",
                 "IFNULL(r.trace_id,'') LIKE ?",
@@ -958,6 +1015,22 @@ fn append_status_filter_clause(
         }
         _ => {}
     }
+}
+
+fn append_source_filter_clause(
+    source_filter: Option<&str>,
+    clauses: &mut Vec<String>,
+    params: &mut Vec<Value>,
+) {
+    let Some(source) = source_filter
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+    else {
+        return;
+    };
+    clauses.push("LOWER(IFNULL(r.source, 'user')) = ?".to_string());
+    params.push(Value::Text(source));
 }
 
 #[cfg(test)]

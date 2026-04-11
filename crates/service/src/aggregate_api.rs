@@ -1,10 +1,11 @@
 use codexmanager_core::rpc::types::{
     AggregateApiCreateResult, AggregateApiSecretResult, AggregateApiSummary, AggregateApiTestResult,
+    ApiKeyModelListResult, ModelOption,
 };
 use codexmanager_core::storage::{now_ts, AggregateApi};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::io::Read;
 use std::time::Instant;
 
@@ -16,12 +17,36 @@ pub(crate) const AGGREGATE_API_PROVIDER_CODEX: &str = "codex";
 pub(crate) const AGGREGATE_API_PROVIDER_CLAUDE: &str = "claude";
 pub(crate) const AGGREGATE_API_AUTH_APIKEY: &str = "apikey";
 pub(crate) const AGGREGATE_API_AUTH_USERPASS: &str = "userpass";
+const AGGREGATE_API_PROBE_TEXT: &str = "hi";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UserPassSecret {
     username: String,
     password: String,
+}
+
+#[derive(Debug, Clone)]
+struct AggregateApiProbeFailure {
+    status_code: Option<i64>,
+    message: String,
+}
+
+impl From<String> for AggregateApiProbeFailure {
+    fn from(message: String) -> Self {
+        Self {
+            status_code: None,
+            message,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AggregateApiProbeExecution {
+    ok: bool,
+    status_code: Option<i64>,
+    message: Option<String>,
+    latency_ms: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,9 +267,14 @@ fn normalize_aggregate_api_status(value: Option<String>) -> Result<String, Strin
 #[cfg(test)]
 mod tests {
     use codexmanager_core::storage::AggregateApi;
+    use codexmanager_core::rpc::types::ModelOption;
+    use serde_json::Value;
 
     use super::{
-        action_path_or_default, normalize_action_override, normalize_aggregate_api_status,
+        action_path_or_default, build_claude_probe_body, build_codex_probe_body,
+        normalize_action_override, normalize_aggregate_api_models,
+        normalize_aggregate_api_status,
+        parse_aggregate_api_model_options,
     };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
@@ -256,6 +286,7 @@ mod tests {
             url: "https://open.bigmodel.cn/api/anthropic".to_string(),
             auth_type: "apikey".to_string(),
             auth_params_json: None,
+            models_json: None,
             action: action.map(str::to_string),
             status: "active".to_string(),
             created_at: 0,
@@ -263,6 +294,11 @@ mod tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            last_probe_at: None,
+            last_probe_status: None,
+            last_probe_error: None,
+            last_probe_latency_ms: None,
+            last_probe_http_status: None,
         }
     }
 
@@ -301,6 +337,72 @@ mod tests {
                 .expect("normalize inactive"),
             "disabled"
         );
+    }
+
+    #[test]
+    fn claude_probe_body_uses_lightweight_hi_message() {
+        let body = build_claude_probe_body();
+        assert_eq!(body["messages"][0]["content"], Value::String("hi".to_string()));
+    }
+
+    #[test]
+    fn codex_probe_body_uses_lightweight_hi_message() {
+        let body = build_codex_probe_body();
+        assert_eq!(
+            body["input"][0]["content"][0]["text"],
+            Value::String("hi".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_aggregate_api_model_options_reads_standard_data_array() {
+        let body = serde_json::json!({
+            "data": [
+                { "id": "gpt-5" },
+                { "id": "gpt-4.1-mini" }
+            ]
+        })
+        .to_string();
+        let items = parse_aggregate_api_model_options(body.as_bytes());
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].slug, "gpt-4.1-mini");
+        assert_eq!(items[1].slug, "gpt-5");
+    }
+
+    #[test]
+    fn parse_aggregate_api_model_options_reads_models_array() {
+        let body = serde_json::json!({
+            "models": [
+                { "slug": "claude-3-5-sonnet" },
+                { "slug": "claude-3-5-haiku" }
+            ]
+        })
+        .to_string();
+        let items = parse_aggregate_api_model_options(body.as_bytes());
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].slug, "claude-3-5-haiku");
+        assert_eq!(items[1].slug, "claude-3-5-sonnet");
+    }
+
+    #[test]
+    fn normalize_aggregate_api_models_trims_dedups_and_fills_display_name() {
+        let items = normalize_aggregate_api_models(vec![
+            ModelOption {
+                slug: " gpt-5 ".to_string(),
+                display_name: "  ".to_string(),
+            },
+            ModelOption {
+                slug: "gpt-5".to_string(),
+                display_name: "GPT-5".to_string(),
+            },
+            ModelOption {
+                slug: " ".to_string(),
+                display_name: "ignored".to_string(),
+            },
+        ]);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].slug, "gpt-5");
+        assert_eq!(items[0].display_name, "gpt-5");
     }
 }
 
@@ -551,7 +653,7 @@ fn build_claude_probe_body() -> serde_json::Value {
         "max_tokens": 1,
         "messages": [{
             "role": "user",
-            "content": "Who are you?"
+            "content": AGGREGATE_API_PROBE_TEXT
         }],
         "stream": true
     })
@@ -575,11 +677,94 @@ fn build_codex_probe_body() -> serde_json::Value {
             "role": "user",
             "content": [{
                 "type": "text",
-                "text": "Who are you?"
+                "text": AGGREGATE_API_PROBE_TEXT
             }]
         }],
         "stream": true
     })
+}
+
+fn parse_aggregate_api_model_options(body: &[u8]) -> Vec<ModelOption> {
+    let mut items: Vec<ModelOption> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let push_model = |slug: &str,
+                      seen: &mut std::collections::HashSet<String>,
+                      items: &mut Vec<ModelOption>| {
+        let normalized = slug.trim();
+        if normalized.is_empty() || !seen.insert(normalized.to_string()) {
+            return;
+        }
+        items.push(ModelOption {
+            slug: normalized.to_string(),
+            display_name: normalized.to_string(),
+        });
+    };
+
+    if let Ok(value) = serde_json::from_slice::<Value>(body) {
+        if let Some(models) = value.get("models").and_then(|v| v.as_array()) {
+            for item in models {
+                if let Some(slug) = item.get("slug").and_then(|v| v.as_str()) {
+                    push_model(slug, &mut seen, &mut items);
+                }
+            }
+        }
+        if let Some(data) = value.get("data").and_then(|v| v.as_array()) {
+            for item in data {
+                if let Some(slug) = item
+                    .get("id")
+                    .or_else(|| item.get("slug"))
+                    .and_then(|v| v.as_str())
+                {
+                    push_model(slug, &mut seen, &mut items);
+                }
+            }
+        }
+    }
+
+    items.sort_by(|a, b| a.slug.cmp(&b.slug));
+    items
+}
+
+fn normalize_aggregate_api_models(models: Vec<ModelOption>) -> Vec<ModelOption> {
+    let mut items = models
+        .into_iter()
+        .filter_map(|item| {
+            let slug = item.slug.trim().to_string();
+            if slug.is_empty() {
+                return None;
+            }
+            let display_name = item.display_name.trim();
+            Some(ModelOption {
+                slug: slug.clone(),
+                display_name: if display_name.is_empty() {
+                    slug
+                } else {
+                    display_name.to_string()
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|a, b| a.slug.cmp(&b.slug));
+    items.dedup_by(|a, b| a.slug == b.slug);
+    items
+}
+
+fn parse_persisted_aggregate_api_models(raw: Option<&str>) -> Vec<ModelOption> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| serde_json::from_str::<Vec<ModelOption>>(value).ok())
+        .map(normalize_aggregate_api_models)
+        .unwrap_or_default()
+}
+
+fn serialize_aggregate_api_models(models: &[ModelOption]) -> Result<Option<String>, String> {
+    if models.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_string(models)
+        .map(Some)
+        .map_err(|err| format!("serialize aggregate api models failed: {err}"))
 }
 
 /// 函数 `append_client_version_query`
@@ -641,6 +826,66 @@ fn add_codex_probe_headers(
         .header("accept-encoding", "identity"))
 }
 
+fn add_aggregate_api_models_headers(
+    builder: reqwest::blocking::RequestBuilder,
+    provider_type: &str,
+) -> reqwest::blocking::RequestBuilder {
+    let normalized_provider = normalize_provider_type_value(provider_type);
+    if normalized_provider == AGGREGATE_API_PROVIDER_CLAUDE {
+        return builder
+            .header("anthropic-version", "2023-06-01")
+            .header("accept", "application/json")
+            .header("accept-encoding", "identity")
+            .header("user-agent", "claude-cli/2.1.2 (external, cli)")
+            .header("x-app", "cli");
+    }
+    builder
+        .header("accept", "application/json")
+        .header("user-agent", gateway::current_codex_user_agent())
+        .header("originator", gateway::current_wire_originator())
+        .header("accept-encoding", "identity")
+}
+
+fn fetch_aggregate_api_models(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+) -> Result<Vec<ModelOption>, String> {
+    let base_url = normalize_probe_url(api.url.as_str(), "/models");
+    let url = append_client_version_query(base_url.as_str());
+    let builder = client.get(url.as_str());
+    let (builder, updated_url) = apply_probe_auth(builder, url.clone(), api, secret)?;
+    let builder = if updated_url != url {
+        let rebuilt = client.get(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    let response = add_aggregate_api_models_headers(builder, api.provider_type.as_str())
+        .send()
+        .map_err(|err| format!("aggregate api models request failed: {err}"))?;
+    let status_code = response.status().as_u16() as i64;
+    if !response.status().is_success() {
+        let body = response.text().unwrap_or_default();
+        let body_hint = body.trim();
+        if body_hint.is_empty() {
+            return Err(format!("aggregate api models http_status={status_code}"));
+        }
+        return Err(format!(
+            "aggregate api models http_status={status_code}; body={body_hint}"
+        ));
+    }
+    let body = response
+        .bytes()
+        .map_err(|err| format!("read aggregate api models failed: {err}"))?;
+    let items = parse_aggregate_api_model_options(body.as_ref());
+    if items.is_empty() {
+        return Err("aggregate api returned empty models list".to_string());
+    }
+    Ok(items)
+}
+
 /// 函数 `probe_codex_models_endpoint`
 ///
 /// 作者: gaohongshun
@@ -658,7 +903,7 @@ fn probe_codex_models_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
-) -> Result<i64, String> {
+) -> Result<i64, AggregateApiProbeFailure> {
     let probe_path = action_path_or_default(api, "/models");
     let base_url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
     let url = append_client_version_query(base_url.as_str());
@@ -673,13 +918,22 @@ fn probe_codex_models_endpoint(
     };
     let response = add_codex_probe_headers(builder)?
         .send()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| AggregateApiProbeFailure {
+            status_code: None,
+            message: err.to_string(),
+        })?;
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("codex models probe http_status={status_code}"));
+        return Err(AggregateApiProbeFailure {
+            status_code: Some(status_code),
+            message: format!("codex models probe http_status={status_code}"),
+        });
     }
-    read_first_chunk(response)?;
+    read_first_chunk(response).map_err(|err| AggregateApiProbeFailure {
+        status_code: Some(status_code),
+        message: err,
+    })?;
     Ok(status_code)
 }
 
@@ -700,7 +954,7 @@ fn probe_codex_responses_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
-) -> Result<i64, String> {
+) -> Result<i64, AggregateApiProbeFailure> {
     let action_hint = api
         .action
         .as_deref()
@@ -728,7 +982,7 @@ fn probe_codex_responses_endpoint(
     let request_body = if probe_path.to_ascii_lowercase().contains("chat/completions") {
         json!({
             "model": "gpt-4o-mini",
-            "messages": [{"role":"user","content":"hi"}],
+            "messages": [{"role":"user","content":AGGREGATE_API_PROBE_TEXT}],
             "stream": false
         })
     } else {
@@ -739,13 +993,22 @@ fn probe_codex_responses_endpoint(
         .header("accept", "text/event-stream")
         .json(&request_body)
         .send()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| AggregateApiProbeFailure {
+            status_code: None,
+            message: err.to_string(),
+        })?;
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("codex probe http_status={status_code}"));
+        return Err(AggregateApiProbeFailure {
+            status_code: Some(status_code),
+            message: format!("codex probe http_status={status_code}"),
+        });
     }
-    read_first_chunk(response)?;
+    read_first_chunk(response).map_err(|err| AggregateApiProbeFailure {
+        status_code: Some(status_code),
+        message: err,
+    })?;
     Ok(status_code)
 }
 
@@ -766,7 +1029,18 @@ fn probe_codex_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
-) -> Result<i64, String> {
+) -> Result<i64, AggregateApiProbeFailure> {
+    let message_result = probe_codex_responses_endpoint(client, api, secret);
+    if let Ok(code) = message_result {
+        return Ok(code);
+    }
+
+    let message_err = message_result
+        .err()
+        .unwrap_or_else(|| AggregateApiProbeFailure {
+            status_code: None,
+            message: "codex message probe failed".to_string(),
+        });
     let models_result = probe_codex_models_endpoint(client, api, secret);
     if let Ok(code) = models_result {
         return Ok(code);
@@ -774,16 +1048,14 @@ fn probe_codex_endpoint(
 
     let models_err = models_result
         .err()
-        .unwrap_or_else(|| "codex models probe failed".to_string());
-    let responses_result = probe_codex_responses_endpoint(client, api, secret);
-    if let Ok(code) = responses_result {
-        return Ok(code);
-    }
-
-    let responses_err = responses_result
-        .err()
-        .unwrap_or_else(|| "codex responses probe failed".to_string());
-    Err(format!("{models_err}; {responses_err}"))
+        .unwrap_or_else(|| AggregateApiProbeFailure {
+            status_code: None,
+            message: "codex models probe failed".to_string(),
+        });
+    Err(AggregateApiProbeFailure {
+        status_code: message_err.status_code.or(models_err.status_code),
+        message: format!("{}; {}", message_err.message, models_err.message),
+    })
 }
 
 /// 函数 `probe_claude_endpoint`
@@ -803,7 +1075,7 @@ fn probe_claude_endpoint(
     client: &reqwest::blocking::Client,
     api: &AggregateApi,
     secret: &str,
-) -> Result<i64, String> {
+) -> Result<i64, AggregateApiProbeFailure> {
     let probe_path = action_path_or_default(api, "/messages?beta=true");
     let url = normalize_probe_url(api.url.as_str(), probe_path.as_str());
     let builder = client.post(url.as_str());
@@ -828,14 +1100,136 @@ fn probe_claude_endpoint(
         .header("x-app", "cli")
         .json(&build_claude_probe_body())
         .send()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| AggregateApiProbeFailure {
+            status_code: None,
+            message: err.to_string(),
+        })?;
 
     let status_code = response.status().as_u16() as i64;
     if !response.status().is_success() {
-        return Err(format!("claude probe http_status={status_code}"));
+        return Err(AggregateApiProbeFailure {
+            status_code: Some(status_code),
+            message: format!("claude probe http_status={status_code}"),
+        });
     }
-    read_first_chunk(response)?;
+    read_first_chunk(response).map_err(|err| AggregateApiProbeFailure {
+        status_code: Some(status_code),
+        message: err,
+    })?;
     Ok(status_code)
+}
+
+fn execute_aggregate_api_probe(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+) -> AggregateApiProbeExecution {
+    let started_at = Instant::now();
+    let provider_type = normalize_provider_type_value(api.provider_type.as_str());
+    let result = if probe_codex_only_for_provider(provider_type.as_str()) {
+        probe_codex_endpoint(client, api, secret)
+    } else {
+        probe_claude_endpoint(client, api, secret)
+    };
+    let latency_ms = started_at.elapsed().as_millis() as i64;
+    match result {
+        Ok(code) => AggregateApiProbeExecution {
+            ok: true,
+            status_code: Some(code),
+            message: None,
+            latency_ms,
+        },
+        Err(err) => AggregateApiProbeExecution {
+            ok: false,
+            status_code: err.status_code,
+            message: Some(format!("provider={provider_type}; {}", err.message)),
+            latency_ms,
+        },
+    }
+}
+
+fn write_aggregate_api_probe_log(
+    storage: &codexmanager_core::storage::Storage,
+    api: &AggregateApi,
+    outcome: &AggregateApiProbeExecution,
+) {
+    let provider_type = normalize_provider_type_value(api.provider_type.as_str());
+    let path = if probe_codex_only_for_provider(provider_type.as_str()) {
+        action_path_or_default(api, "/responses")
+    } else {
+        action_path_or_default(api, "/messages?beta=true")
+    };
+    let request_path = if path.starts_with("/v1/") {
+        path
+    } else {
+        format!("/v1{}", path)
+    };
+    gateway::write_request_log(
+        storage,
+        gateway::RequestLogTraceContext {
+            source: Some("aggregate_api_probe"),
+            request_type: Some("http"),
+            aggregate_api_supplier_name: api.supplier_name.as_deref(),
+            aggregate_api_url: Some(api.url.as_str()),
+            attempted_aggregate_api_ids: Some(std::slice::from_ref(&api.id)),
+            ..Default::default()
+        },
+        None,
+        None,
+        request_path.as_str(),
+        if probe_codex_only_for_provider(provider_type.as_str()) {
+            "POST"
+        } else {
+            "POST"
+        },
+        None,
+        None,
+        Some(api.url.as_str()),
+        outcome.status_code.map(|code| code as u16),
+        gateway::RequestLogUsage::default(),
+        outcome.message.as_deref(),
+        Some(outcome.latency_ms.max(0) as u128),
+    );
+}
+
+pub(crate) fn refresh_aggregate_api_probe_results() -> Result<(), String> {
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let items = storage
+        .list_aggregate_apis()
+        .map_err(|err| format!("list aggregate apis failed: {err}"))?;
+    let client = gateway::fresh_upstream_client();
+
+    for api in items.into_iter().filter(|item| item.status == "active") {
+        let outcome = match storage
+            .find_aggregate_api_secret_by_id(api.id.as_str())
+            .map_err(|err| err.to_string())?
+        {
+            Some(secret) => execute_aggregate_api_probe(&client, &api, secret.as_str()),
+            None => AggregateApiProbeExecution {
+                ok: false,
+                status_code: None,
+                message: Some("aggregate api secret not found".to_string()),
+                latency_ms: 0,
+            },
+        };
+        write_aggregate_api_probe_log(&storage, &api, &outcome);
+
+        if let Err(err) = storage.update_aggregate_api_probe_result(
+            api.id.as_str(),
+            outcome.ok,
+            outcome.status_code,
+            Some(outcome.latency_ms),
+            outcome.message.as_deref(),
+        ) {
+            log::warn!(
+                "update aggregate api probe result failed: api_id={} err={}",
+                api.id,
+                err
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// 函数 `list_aggregate_apis`
@@ -869,6 +1263,7 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
+            models: parse_persisted_aggregate_api_models(item.models_json.as_deref()),
             action: item.action,
             status: item.status,
             created_at: item.created_at,
@@ -876,6 +1271,11 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
             last_test_at: item.last_test_at,
             last_test_status: item.last_test_status,
             last_test_error: item.last_test_error,
+            last_probe_at: item.last_probe_at,
+            last_probe_status: item.last_probe_status,
+            last_probe_error: item.last_probe_error,
+            last_probe_latency_ms: item.last_probe_latency_ms,
+            last_probe_http_status: item.last_probe_http_status,
         })
         .collect())
 }
@@ -902,6 +1302,7 @@ pub(crate) fn create_aggregate_api(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    models: Option<Vec<ModelOption>>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<AggregateApiCreateResult, String> {
@@ -919,6 +1320,8 @@ pub(crate) fn create_aggregate_api(
     )?;
     let normalized_action =
         normalize_action_override(action_custom_enabled, action)?.unwrap_or(None);
+    let normalized_models = normalize_aggregate_api_models(models.unwrap_or_default());
+    let models_json = serialize_aggregate_api_models(normalized_models.as_slice())?;
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
         normalize_secret(key).ok_or_else(|| "key is required".to_string())?
     } else {
@@ -946,6 +1349,7 @@ pub(crate) fn create_aggregate_api(
         auth_params_json: normalized_auth_params_json
             .map(|value| if value.is_empty() { None } else { Some(value) })
             .unwrap_or(None),
+        models_json,
         action: normalized_action,
         status: "active".to_string(),
         created_at,
@@ -953,6 +1357,11 @@ pub(crate) fn create_aggregate_api(
         last_test_at: None,
         last_test_status: None,
         last_test_error: None,
+        last_probe_at: None,
+        last_probe_status: None,
+        last_probe_error: None,
+        last_probe_latency_ms: None,
+        last_probe_http_status: None,
     };
     storage
         .insert_aggregate_api(&record)
@@ -995,6 +1404,7 @@ pub(crate) fn update_aggregate_api(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    models: Option<Vec<ModelOption>>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<(), String> {
@@ -1078,6 +1488,14 @@ pub(crate) fn update_aggregate_api(
                 .update_aggregate_api_action(api_id, None)
                 .map_err(|err| err.to_string())?;
         }
+    }
+
+    if let Some(models) = models {
+        let normalized_models = normalize_aggregate_api_models(models);
+        let models_json = serialize_aggregate_api_models(normalized_models.as_slice())?;
+        storage
+            .update_aggregate_api_models_json(api_id, models_json.as_deref())
+            .map_err(|err| err.to_string())?;
     }
 
     if next_auth_type == AGGREGATE_API_AUTH_APIKEY {
@@ -1180,6 +1598,151 @@ pub(crate) fn read_aggregate_api_secret(api_id: &str) -> Result<AggregateApiSecr
     })
 }
 
+pub(crate) fn list_aggregate_api_models(api_id: &str) -> Result<ApiKeyModelListResult, String> {
+    if api_id.is_empty() {
+        return Err("aggregate api id required".to_string());
+    }
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let api = storage
+        .find_aggregate_api_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api not found".to_string())?;
+    let secret = storage
+        .find_aggregate_api_secret_by_id(api_id)
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "aggregate api secret not found".to_string())?;
+    let client = gateway::fresh_upstream_client();
+    let started_at = Instant::now();
+    let result = fetch_aggregate_api_models(&client, &api, &secret);
+    let duration_ms = started_at.elapsed().as_millis();
+    match result {
+        Ok(items) => {
+            let normalized_items = normalize_aggregate_api_models(items);
+            let models_json = serialize_aggregate_api_models(normalized_items.as_slice())?;
+            storage
+                .update_aggregate_api_models_json(api_id, models_json.as_deref())
+                .map_err(|err| err.to_string())?;
+            gateway::write_request_log(
+                &storage,
+                gateway::RequestLogTraceContext {
+                    source: Some("aggregate_api_model_list"),
+                    request_type: Some("http"),
+                    aggregate_api_supplier_name: api.supplier_name.as_deref(),
+                    aggregate_api_url: Some(api.url.as_str()),
+                    attempted_aggregate_api_ids: Some(std::slice::from_ref(&api.id)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                "/v1/models",
+                "GET",
+                None,
+                None,
+                Some(api.url.as_str()),
+                Some(200),
+                gateway::RequestLogUsage::default(),
+                None,
+                Some(duration_ms),
+            );
+            Ok(ApiKeyModelListResult {
+                items: normalized_items,
+            })
+        }
+        Err(err) => {
+            gateway::write_request_log(
+                &storage,
+                gateway::RequestLogTraceContext {
+                    source: Some("aggregate_api_model_list"),
+                    request_type: Some("http"),
+                    aggregate_api_supplier_name: api.supplier_name.as_deref(),
+                    aggregate_api_url: Some(api.url.as_str()),
+                    attempted_aggregate_api_ids: Some(std::slice::from_ref(&api.id)),
+                    ..Default::default()
+                },
+                None,
+                None,
+                "/v1/models",
+                "GET",
+                None,
+                None,
+                Some(api.url.as_str()),
+                Some(502),
+                gateway::RequestLogUsage::default(),
+                Some(err.as_str()),
+                Some(duration_ms),
+            );
+            Err(err)
+        }
+    }
+}
+
+pub fn list_aggregate_api_models_draft(
+    url: Option<String>,
+    key: Option<String>,
+    provider_type: Option<String>,
+    auth_type: Option<String>,
+    auth_custom_enabled: Option<bool>,
+    auth_params: Option<serde_json::Value>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<ApiKeyModelListResult, String> {
+    let normalized_provider_type = normalize_provider_type(provider_type)?;
+    let normalized_url =
+        normalize_upstream_base_url(url)?.ok_or_else(|| "url is required".to_string())?;
+    let normalized_auth_type = normalize_auth_type(auth_type)?;
+    let normalized_auth_params_json = normalize_auth_params_json(
+        normalized_auth_type.as_str(),
+        auth_custom_enabled,
+        auth_params,
+    )?;
+    let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
+        normalize_secret(key).ok_or_else(|| "key is required".to_string())?
+    } else {
+        let username = username
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| "username is required".to_string())?;
+        let password = password
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| "password is required".to_string())?;
+        serialize_userpass_secret(username, password)?
+    };
+
+    let draft_api = AggregateApi {
+        id: "draft".to_string(),
+        provider_type: normalized_provider_type,
+        supplier_name: None,
+        sort: 0,
+        url: normalized_url,
+        auth_type: normalized_auth_type,
+        auth_params_json: normalized_auth_params_json
+            .map(|value| if value.is_empty() { None } else { Some(value) })
+            .unwrap_or(None),
+        models_json: None,
+        action: None,
+        status: "active".to_string(),
+        created_at: now_ts(),
+        updated_at: now_ts(),
+        last_test_at: None,
+        last_test_status: None,
+        last_test_error: None,
+        last_probe_at: None,
+        last_probe_status: None,
+        last_probe_error: None,
+        last_probe_latency_ms: None,
+        last_probe_http_status: None,
+    };
+
+    let client = gateway::fresh_upstream_client();
+    let items = fetch_aggregate_api_models(&client, &draft_api, normalized_secret.as_str())?;
+    Ok(ApiKeyModelListResult {
+        items: normalize_aggregate_api_models(items),
+    })
+}
+
 /// 函数 `test_aggregate_api_connection`
 ///
 /// 作者: gaohongshun
@@ -1209,26 +1772,20 @@ pub(crate) fn test_aggregate_api_connection(
         return Err("aggregate api secret not found".to_string());
     };
     let client = gateway::fresh_upstream_client();
-    let started_at = Instant::now();
-    let provider_type = normalize_provider_type_value(api.provider_type.as_str());
-    let result = if probe_codex_only_for_provider(provider_type.as_str()) {
-        probe_codex_endpoint(&client, &api, &secret)
-    } else {
-        probe_claude_endpoint(&client, &api, &secret)
-    };
-    let (ok, status_code, last_error) = match result {
-        Ok(code) => (true, Some(code), None),
-        Err(err) => (false, None, Some(err)),
-    };
-    let message = last_error.map(|err| format!("provider={provider_type}; {err}"));
+    let outcome = execute_aggregate_api_probe(&client, &api, &secret);
 
-    let _ = storage.update_aggregate_api_test_result(api_id, ok, status_code, message.as_deref());
+    let _ = storage.update_aggregate_api_test_result(
+        api_id,
+        outcome.ok,
+        outcome.status_code,
+        outcome.message.as_deref(),
+    );
     Ok(AggregateApiTestResult {
         id: api_id.to_string(),
-        ok,
-        status_code,
-        message,
+        ok: outcome.ok,
+        status_code: outcome.status_code,
+        message: outcome.message,
         tested_at: now_ts(),
-        latency_ms: started_at.elapsed().as_millis() as i64,
+        latency_ms: outcome.latency_ms,
     })
 }

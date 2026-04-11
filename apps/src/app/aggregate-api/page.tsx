@@ -21,6 +21,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -57,7 +64,7 @@ import { useDeferredDesktopActivation } from "@/hooks/useDeferredDesktopActivati
 import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
-import { AggregateApi, AggregateApiSecretResult } from "@/types";
+import { AggregateApi, AggregateApiSecretResult, ModelOption } from "@/types";
 
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 
@@ -65,12 +72,15 @@ const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex",
   claude: "Claude",
 };
+const BASE_PROVIDER_FILTER_VALUES = ["all", "codex", "claude"] as const;
 
-const AGGREGATE_API_PROVIDER_FILTER_LABELS: Record<string, string> = {
-  all: "全部类型",
-  codex: "Codex",
-  claude: "Claude",
-};
+function formatAggregateApiProviderLabel(providerType: string) {
+  const normalized = String(providerType || "").trim().toLowerCase();
+  if (!normalized) {
+    return "未知类型";
+  }
+  return AGGREGATE_API_PROVIDER_LABELS[normalized] || providerType;
+}
 
 /**
  * 函数 `getTestBadge`
@@ -124,6 +134,14 @@ export default function AggregateApiPage() {
   >({});
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
+  const [modelDialogApiId, setModelDialogApiId] = useState<string | null>(null);
+  const [modelsLoadingApiId, setModelsLoadingApiId] = useState<string | null>(null);
+  const [aggregateApiModels, setAggregateApiModels] = useState<
+    Record<string, ModelOption[]>
+  >({});
+  const [aggregateApiModelErrors, setAggregateApiModelErrors] = useState<
+    Record<string, string>
+  >({});
 
   const { data: aggregateApis = [], isLoading } = useQuery({
     queryKey: ["aggregate-apis"],
@@ -139,11 +157,16 @@ export default function AggregateApiPage() {
     setModalOpen(false);
     setEditingId(null);
     setDeleteId(null);
+    setModelDialogApiId(null);
   }, [isPageActive]);
 
   const editingApi = useMemo(
     () => aggregateApis.find((item) => item.id === editingId) || null,
     [aggregateApis, editingId],
+  );
+  const modelDialogApi = useMemo(
+    () => aggregateApis.find((item) => item.id === modelDialogApiId) || null,
+    [aggregateApis, modelDialogApiId],
   );
 
   const filteredAggregateApis = useMemo(() => {
@@ -152,6 +175,50 @@ export default function AggregateApiPage() {
     }
     return aggregateApis.filter((api) => api.providerType === providerFilter);
   }, [aggregateApis, providerFilter]);
+
+  const providerFilterOptions = useMemo(() => {
+    const dynamicItems = Array.from(
+      new Set(
+        aggregateApis
+          .map((api) => String(api.providerType || "").trim().toLowerCase())
+          .filter(
+            (value) =>
+              Boolean(value) &&
+              !BASE_PROVIDER_FILTER_VALUES.includes(
+                value as (typeof BASE_PROVIDER_FILTER_VALUES)[number],
+              ),
+          ),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+
+    return [
+      {
+        value: "all",
+        label: t("全部类型"),
+      },
+      {
+        value: "codex",
+        label: "Codex",
+      },
+      {
+        value: "claude",
+        label: "Claude",
+      },
+      ...dynamicItems.map((value) => ({
+        value,
+        label: t(formatAggregateApiProviderLabel(value)),
+      })),
+    ];
+  }, [aggregateApis, t]);
+
+  useEffect(() => {
+    if (providerFilter === "all") {
+      return;
+    }
+    if (!providerFilterOptions.some((item) => item.value === providerFilter)) {
+      setProviderFilter("all");
+    }
+  }, [providerFilter, providerFilterOptions]);
 
   const defaultCreateSort = useMemo(() => {
     const maxSort = aggregateApis.reduce(
@@ -215,6 +282,36 @@ export default function AggregateApiPage() {
     },
     onError: (error: unknown) => {
       toast.error(`${t("测试")} ${t("失败")}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  const listModelsMutation = useMutation({
+    mutationFn: (apiId: string) => accountClient.listAggregateApiModels(apiId),
+    onMutate: async (apiId) => {
+      setModelsLoadingApiId(apiId);
+      setAggregateApiModelErrors((current) => ({
+        ...current,
+        [apiId]: "",
+      }));
+    },
+    onSuccess: async (items, apiId) => {
+      setAggregateApiModels((current) => ({ ...current, [apiId]: items }));
+      toast.success(
+        t("已拉取 {count} 个模型", {
+          count: items.length,
+        }),
+      );
+    },
+    onError: (error: unknown, apiId) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setAggregateApiModelErrors((current) => ({
+        ...current,
+        [apiId]: message,
+      }));
+      toast.error(`${t("拉取模型失败")}: ${message}`);
+    },
+    onSettled: async (_result, _error, apiId) => {
+      setModelsLoadingApiId((current) => (current === apiId ? null : current));
     },
   });
 
@@ -433,6 +530,27 @@ export default function AggregateApiPage() {
     return secret.key || "";
   };
 
+  const currentAggregateApiModels = modelDialogApiId
+    ? aggregateApiModels[modelDialogApiId] || modelDialogApi?.models || []
+    : [];
+  const currentAggregateApiModelError = modelDialogApiId
+    ? aggregateApiModelErrors[modelDialogApiId] || ""
+    : "";
+
+  const openModelsDialog = async (apiId: string) => {
+    setModelDialogApiId(apiId);
+    const persistedModels =
+      aggregateApis.find((item) => item.id === apiId)?.models || [];
+    if (
+      aggregateApiModels[apiId]?.length ||
+      persistedModels.length > 0 ||
+      modelsLoadingApiId === apiId
+    ) {
+      return;
+    }
+    listModelsMutation.mutate(apiId);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {!isServiceReady ? (
@@ -455,27 +573,34 @@ export default function AggregateApiPage() {
         <Card className="glass-card border-none shadow-xl backdrop-blur-md">
           <CardContent className="px-4 ">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">{t("查询")}</span>
+              <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-muted/20 px-3 py-2">
+                <div className="flex min-w-0 flex-col leading-none">
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
+                    {t("筛选")}
+                  </span>
+                  <span className="mt-1 text-sm font-medium text-foreground">
+                    {t("聚合类型")}
+                  </span>
+                </div>
                 <Select
                   value={providerFilter}
                   onValueChange={(value) => setProviderFilter(value || "all")}
                 >
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="h-10 min-w-[180px] border-border/60 bg-background/40 shadow-none">
                     <SelectValue>
                       {(value) =>
-                        t(
-                          AGGREGATE_API_PROVIDER_FILTER_LABELS[
-                            String(value || "")
-                          ] || "全部类型",
-                        )
+                        providerFilterOptions.find(
+                          (item) => item.value === String(value || ""),
+                        )?.label || t("全部类型")
                       }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">{t("全部类型")}</SelectItem>
-                    <SelectItem value="codex">Codex</SelectItem>
-                    <SelectItem value="claude">Claude</SelectItem>
+                    {providerFilterOptions.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -545,10 +670,9 @@ export default function AggregateApiPage() {
                           {providerFilter === "all"
                             ? t("暂无聚合 API，点击右上角新建")
                             : t("暂无 {provider} 聚合 API", {
-                                provider:
-                                  AGGREGATE_API_PROVIDER_LABELS[
-                                    providerFilter
-                                  ] || providerFilter,
+                                provider: t(
+                                  formatAggregateApiProviderLabel(providerFilter),
+                                ),
                               })}
                         </p>
                       </div>
@@ -790,6 +914,20 @@ export default function AggregateApiPage() {
                                   <ArrowUp className="h-4 w-4" /> {t("设为优先")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
+                                  className="gap-2"
+                                  disabled={!isServiceReady}
+                                  onClick={() => void openModelsDialog(api.id)}
+                                >
+                                  <RefreshCw
+                                    className={
+                                      modelsLoadingApiId === api.id
+                                        ? "h-4 w-4 animate-spin"
+                                        : "h-4 w-4"
+                                    }
+                                  />
+                                  {t("查看模型")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   className="gap-2 text-red-500"
                                   disabled={!isServiceReady}
                                   onClick={() => setDeleteId(api.id)}
@@ -816,6 +954,85 @@ export default function AggregateApiPage() {
         aggregateApi={editingApi}
         defaultSort={defaultCreateSort}
       />
+
+      <Dialog
+        open={Boolean(modelDialogApiId)}
+        onOpenChange={(open) => !open && setModelDialogApiId(null)}
+      >
+        <DialogContent className="glass-card border-none sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t("聚合 API 模型列表")}</DialogTitle>
+            <DialogDescription>
+              {modelDialogApi
+                ? `${modelDialogApi.supplierName || "-"} · ${modelDialogApi.url}`
+                : t("查看当前聚合 API 返回的可用模型")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                {currentAggregateApiModels.length > 0
+                  ? t("共 {count} 个模型", {
+                      count: currentAggregateApiModels.length,
+                    })
+                  : t("尚未加载模型")}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-2"
+                disabled={!modelDialogApiId || modelsLoadingApiId === modelDialogApiId}
+                onClick={() =>
+                  modelDialogApiId
+                    ? listModelsMutation.mutate(modelDialogApiId)
+                    : undefined
+                }
+              >
+                <RefreshCw
+                  className={
+                    modelDialogApiId && modelsLoadingApiId === modelDialogApiId
+                      ? "h-3.5 w-3.5 animate-spin"
+                      : "h-3.5 w-3.5"
+                  }
+                />
+                {t("刷新")}
+              </Button>
+            </div>
+            <div className="max-h-[50vh] overflow-auto rounded-xl border border-border/60 bg-background/40 p-4">
+              {modelDialogApiId && modelsLoadingApiId === modelDialogApiId ? (
+                <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
+                  {t("正在拉取模型...")}
+                </div>
+              ) : currentAggregateApiModelError ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-red-500">
+                    {t("拉取模型失败")}
+                  </p>
+                  <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                    {currentAggregateApiModelError}
+                  </p>
+                </div>
+              ) : currentAggregateApiModels.length === 0 ? (
+                <div className="flex min-h-24 items-center justify-center text-sm text-muted-foreground">
+                  {t("暂无模型数据，点击刷新后重新拉取")}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {currentAggregateApiModels.map((item) => (
+                    <Badge
+                      key={item.slug}
+                      variant="secondary"
+                      className="px-2.5 py-1 font-mono text-[11px]"
+                    >
+                      {item.displayName}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={Boolean(deleteId)}

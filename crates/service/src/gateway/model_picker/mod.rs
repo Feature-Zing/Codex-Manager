@@ -3,6 +3,7 @@ use codexmanager_core::rpc::types::ModelOption;
 use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::Method;
 use serde_json::Value;
+use std::time::Instant;
 
 mod parse;
 mod request;
@@ -43,6 +44,14 @@ fn should_retry_models_with_openai_fallback(err: &str) -> bool {
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
+    fetch_models_for_picker_inner(None)
+}
+
+pub(crate) fn fetch_models_for_picker_with_source(source: &str) -> Result<Vec<ModelOption>, String> {
+    fetch_models_for_picker_inner(Some(source))
+}
+
+fn fetch_models_for_picker_inner(source: Option<&str>) -> Result<Vec<ModelOption>, String> {
     let storage = super::open_storage().ok_or_else(|| "storage unavailable".to_string())?;
     let mut candidates = super::collect_gateway_candidates(&storage)?;
     if candidates.is_empty() {
@@ -57,6 +66,7 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
     sort_model_picker_candidates(&storage, &mut candidates);
     let mut last_error = "models request failed".to_string();
     for (account, mut token) in candidates {
+        let started_at = Instant::now();
         match send_models_request(
             &storage,
             &method,
@@ -65,11 +75,35 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
             &account,
             &mut token,
         ) {
-            Ok(response_body) => return Ok(parse_model_options(&response_body)),
+            Ok(response_body) => {
+                if let Some(source) = source {
+                    super::write_request_log(
+                        &storage,
+                        super::request_log::RequestLogTraceContext {
+                            source: Some(source),
+                            request_type: Some("http"),
+                            ..Default::default()
+                        },
+                        None,
+                        Some(account.id.as_str()),
+                        path.as_str(),
+                        method.as_str(),
+                        None,
+                        None,
+                        Some(upstream_base.as_str()),
+                        Some(200),
+                        super::request_log::RequestLogUsage::default(),
+                        None,
+                        Some(started_at.elapsed().as_millis()),
+                    );
+                }
+                return Ok(parse_model_options(&response_body));
+            }
             Err(err) => {
                 // ChatGPT upstream occasionally returns HTML challenge. Try OpenAI fallback.
                 if should_retry_models_with_openai_fallback(&err) {
                     if let Some(fallback_base) = upstream_fallback_base.as_deref() {
+                        let fallback_started_at = Instant::now();
                         if let Ok(response_body) = send_models_request(
                             &storage,
                             &method,
@@ -78,9 +112,51 @@ pub(crate) fn fetch_models_for_picker() -> Result<Vec<ModelOption>, String> {
                             &account,
                             &mut token,
                         ) {
+                            if let Some(source) = source {
+                                super::write_request_log(
+                                    &storage,
+                                    super::request_log::RequestLogTraceContext {
+                                        source: Some(source),
+                                        request_type: Some("http"),
+                                        ..Default::default()
+                                    },
+                                    None,
+                                    Some(account.id.as_str()),
+                                    path.as_str(),
+                                    method.as_str(),
+                                    None,
+                                    None,
+                                    Some(fallback_base),
+                                    Some(200),
+                                    super::request_log::RequestLogUsage::default(),
+                                    None,
+                                    Some(fallback_started_at.elapsed().as_millis()),
+                                );
+                            }
                             return Ok(parse_model_options(&response_body));
                         }
                     }
+                }
+                if let Some(source) = source {
+                    super::write_request_log(
+                        &storage,
+                        super::request_log::RequestLogTraceContext {
+                            source: Some(source),
+                            request_type: Some("http"),
+                            ..Default::default()
+                        },
+                        None,
+                        Some(account.id.as_str()),
+                        path.as_str(),
+                        method.as_str(),
+                        None,
+                        None,
+                        Some(upstream_base.as_str()),
+                        Some(502),
+                        super::request_log::RequestLogUsage::default(),
+                        Some(err.as_str()),
+                        Some(started_at.elapsed().as_millis()),
+                    );
                 }
                 last_error = err;
             }

@@ -47,6 +47,7 @@ pub async fn service_aggregate_api_create(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    models: Option<serde_json::Value>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -61,6 +62,7 @@ pub async fn service_aggregate_api_create(
         "authParams": auth_params,
         "actionCustomEnabled": action_custom_enabled,
         "action": action,
+        "models": models,
         "username": username,
         "password": password,
     });
@@ -91,6 +93,7 @@ pub async fn service_aggregate_api_update(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    status: Option<String>,
     url: Option<String>,
     key: Option<String>,
     auth_type: Option<String>,
@@ -98,6 +101,7 @@ pub async fn service_aggregate_api_update(
     auth_params: Option<serde_json::Value>,
     action_custom_enabled: Option<bool>,
     action: Option<String>,
+    models: Option<serde_json::Value>,
     username: Option<String>,
     password: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -106,6 +110,7 @@ pub async fn service_aggregate_api_update(
         "providerType": provider_type,
         "supplierName": supplier_name,
         "sort": sort,
+        "status": status,
         "url": url,
         "key": key,
         "authType": auth_type,
@@ -113,6 +118,7 @@ pub async fn service_aggregate_api_update(
         "authParams": auth_params,
         "actionCustomEnabled": action_custom_enabled,
         "action": action,
+        "models": models,
         "username": username,
         "password": password,
     });
@@ -180,4 +186,50 @@ pub async fn service_aggregate_api_test_connection(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/testConnection", addr, Some(params)).await
+}
+
+/// 函数 `service_aggregate_api_list_models`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-11
+///
+/// # 参数
+/// - addr: 参数 addr
+/// - id: 参数 id
+///
+/// # 返回
+/// 返回函数执行结果
+#[tauri::command]
+pub async fn service_aggregate_api_list_models(
+    addr: Option<String>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({ "id": id });
+    rpc_call_in_background("aggregateApi/listModels", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_list_models_draft(
+    addr: Option<String>,
+    provider_type: Option<String>,
+    url: Option<String>,
+    key: Option<String>,
+    auth_type: Option<String>,
+    auth_custom_enabled: Option<bool>,
+    auth_params: Option<serde_json::Value>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "providerType": provider_type,
+        "url": url,
+        "key": key,
+        "authType": auth_type,
+        "authCustomEnabled": auth_custom_enabled,
+        "authParams": auth_params,
+        "username": username,
+        "password": password,
+    });
+    rpc_call_in_background("aggregateApi/listModelsDraft", addr, Some(params)).await
 }

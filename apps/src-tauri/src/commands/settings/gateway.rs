@@ -126,6 +126,8 @@ pub async fn service_gateway_background_tasks_get(
 /// - usage_poll_interval_secs: 参数 usage_poll_interval_secs
 /// - gateway_keepalive_enabled: 参数 gateway_keepalive_enabled
 /// - gateway_keepalive_interval_secs: 参数 gateway_keepalive_interval_secs
+/// - aggregate_api_probe_enabled: 参数 aggregate_api_probe_enabled
+/// - aggregate_api_probe_interval_secs: 参数 aggregate_api_probe_interval_secs
 /// - token_refresh_polling_enabled: 参数 token_refresh_polling_enabled
 /// - token_refresh_poll_interval_secs: 参数 token_refresh_poll_interval_secs
 /// - usage_refresh_workers: 参数 usage_refresh_workers
@@ -144,6 +146,8 @@ pub async fn service_gateway_background_tasks_set(
     usage_poll_interval_secs: Option<u64>,
     gateway_keepalive_enabled: Option<bool>,
     gateway_keepalive_interval_secs: Option<u64>,
+    aggregate_api_probe_enabled: Option<bool>,
+    aggregate_api_probe_interval_secs: Option<u64>,
     token_refresh_polling_enabled: Option<bool>,
     token_refresh_poll_interval_secs: Option<u64>,
     usage_refresh_workers: Option<u64>,
@@ -157,6 +161,8 @@ pub async fn service_gateway_background_tasks_set(
       "usagePollIntervalSecs": usage_poll_interval_secs,
       "gatewayKeepaliveEnabled": gateway_keepalive_enabled,
       "gatewayKeepaliveIntervalSecs": gateway_keepalive_interval_secs,
+      "aggregateApiProbeEnabled": aggregate_api_probe_enabled,
+      "aggregateApiProbeIntervalSecs": aggregate_api_probe_interval_secs,
       "tokenRefreshPollingEnabled": token_refresh_polling_enabled,
       "tokenRefreshPollIntervalSecs": token_refresh_poll_interval_secs,
       "usageRefreshWorkers": usage_refresh_workers,

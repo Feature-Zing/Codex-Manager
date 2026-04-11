@@ -69,6 +69,8 @@ export const useAppStore = create<AppState>((set) => ({
       usagePollIntervalSecs: 600,
       gatewayKeepaliveEnabled: true,
       gatewayKeepaliveIntervalSecs: 180,
+      aggregateApiProbeEnabled: false,
+      aggregateApiProbeIntervalSecs: 180,
       tokenRefreshPollingEnabled: true,
       tokenRefreshPollIntervalSecs: 60,
       usageRefreshWorkers: 4,

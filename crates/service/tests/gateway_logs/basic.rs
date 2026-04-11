@@ -37,7 +37,7 @@ fn gateway_logs_invalid_api_key_error() {
     let mut logs = Vec::new();
     for _ in 0..40 {
         logs = storage
-            .list_request_logs(None, 100)
+            .list_request_logs(None, None, 100)
             .expect("list request logs");
         if !logs.is_empty() {
             break;

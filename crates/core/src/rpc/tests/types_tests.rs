@@ -1,6 +1,8 @@
 use super::{
-    AccountListParams, AccountListResult, AccountSummary, ApiKeyUsageStatSummary,
-    RequestLogFilterSummaryResult, RequestLogListParams, RequestLogListResult, RequestLogSummary,
+    AccountListParams, AccountListResult, AccountSummary, AggregateApiSummary,
+    ApiKeyUsageStatSummary, ModelOption,
+    RequestLogFilterSummaryResult, RequestLogListParams, RequestLogListResult,
+    RequestLogSourceCountResult, RequestLogSummary,
 };
 
 /// 函数 `account_summary_serialization_matches_compact_contract`
@@ -127,6 +129,7 @@ fn account_list_result_serialization_includes_pagination_fields() {
 fn request_log_summary_serialization_includes_trace_route_fields() {
     let summary = RequestLogSummary {
         trace_id: Some("trc_1".to_string()),
+        source: Some("aggregate_api_probe".to_string()),
         key_id: Some("gk_1".to_string()),
         account_id: Some("acc_1".to_string()),
         initial_account_id: Some("acc_free".to_string()),
@@ -160,6 +163,7 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
     let obj = value.as_object().expect("request log summary object");
     for key in [
         "traceId",
+        "source",
         "initialAccountId",
         "attemptedAccountIds",
         "originalPath",
@@ -194,6 +198,7 @@ fn request_log_list_params_default_to_first_page_with_twenty_items() {
 
     assert_eq!(normalized.page, 1);
     assert_eq!(normalized.page_size, 20);
+    assert_eq!(normalized.source_filter, None);
 }
 
 /// 函数 `request_log_list_result_serialization_includes_pagination_fields`
@@ -212,6 +217,7 @@ fn request_log_list_result_serialization_includes_pagination_fields() {
     let result = RequestLogListResult {
         items: vec![RequestLogSummary {
             trace_id: Some("trc_1".to_string()),
+            source: Some("gateway_keepalive".to_string()),
             key_id: Some("gk_1".to_string()),
             account_id: Some("acc_1".to_string()),
             initial_account_id: Some("acc_free".to_string()),
@@ -272,6 +278,10 @@ fn request_log_filter_summary_serialization_uses_camel_case() {
         error_count: 3,
         total_tokens: 123456,
         total_cost_usd: 12.34,
+        source_breakdown: vec![RequestLogSourceCountResult {
+            source: "user".to_string(),
+            count: 20,
+        }],
     };
 
     let value = serde_json::to_value(result).expect("serialize request log filter summary");
@@ -285,6 +295,7 @@ fn request_log_filter_summary_serialization_uses_camel_case() {
         "errorCount",
         "totalTokens",
         "totalCostUsd",
+        "sourceBreakdown",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
@@ -316,4 +327,37 @@ fn api_key_usage_stat_summary_serialization_uses_camel_case() {
     for key in ["keyId", "totalTokens", "estimatedCostUsd"] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }
+}
+
+#[test]
+fn aggregate_api_summary_serialization_includes_models() {
+    let summary = AggregateApiSummary {
+        id: "agg_1".to_string(),
+        provider_type: "codex".to_string(),
+        supplier_name: Some("供应商".to_string()),
+        sort: 1,
+        url: "https://api.example.com/v1".to_string(),
+        auth_type: "apikey".to_string(),
+        auth_params: None,
+        models: vec![ModelOption {
+            slug: "gpt-5".to_string(),
+            display_name: "gpt-5".to_string(),
+        }],
+        action: None,
+        status: "active".to_string(),
+        created_at: 1,
+        updated_at: 1,
+        last_test_at: None,
+        last_test_status: None,
+        last_test_error: None,
+        last_probe_at: None,
+        last_probe_status: None,
+        last_probe_error: None,
+        last_probe_latency_ms: None,
+        last_probe_http_status: None,
+    };
+
+    let value = serde_json::to_value(summary).expect("serialize aggregate api summary");
+    let obj = value.as_object().expect("aggregate api summary object");
+    assert!(obj.contains_key("models"), "missing key: models");
 }

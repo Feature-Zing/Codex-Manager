@@ -26,7 +26,7 @@ pub(crate) fn read_model_options(refresh_remote: bool) -> Result<ApiKeyModelList
         return Ok(ApiKeyModelListResult { items: cached });
     }
 
-    match gateway::fetch_models_for_picker() {
+    match gateway::fetch_models_for_picker_with_source("ui_model_refresh") {
         Ok(items) => {
             let (merged_items, changed) = merge_model_options(&cached, &items);
             if changed {

@@ -42,7 +42,7 @@ pub(crate) fn read_request_logs(
 ) -> Result<Vec<RequestLogSummary>, String> {
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let logs = storage
-        .list_request_logs(query.as_deref(), limit.unwrap_or(200))
+        .list_request_logs(query.as_deref(), None, limit.unwrap_or(200))
         .map_err(|err| format!("list request logs failed: {err}"))?;
     Ok(logs.into_iter().map(to_request_log_summary).collect())
 }
@@ -65,9 +65,10 @@ pub(crate) fn read_request_log_page(
     let storage = open_storage().ok_or_else(|| "open storage failed".to_string())?;
     let query = normalize_optional_text(params.query);
     let status_filter = normalize_status_filter(params.status_filter);
+    let source_filter = normalize_source_filter(params.source_filter);
     let page_size = normalize_page_size(params.page_size);
     let total = storage
-        .count_request_logs(query.as_deref(), status_filter.as_deref())
+        .count_request_logs(query.as_deref(), status_filter.as_deref(), source_filter.as_deref())
         .map_err(|err| format!("count request logs failed: {err}"))?;
     let page = clamp_page(params.page, total, page_size);
     let offset = (page - 1) * page_size;
@@ -75,6 +76,7 @@ pub(crate) fn read_request_log_page(
         .list_request_logs_paginated(
             query.as_deref(),
             status_filter.as_deref(),
+            source_filter.as_deref(),
             offset,
             page_size,
         )
@@ -124,6 +126,14 @@ pub(crate) fn normalize_status_filter(value: Option<String>) -> Option<String> {
         "" | "all" => None,
         "2xx" | "4xx" | "5xx" => Some(normalized),
         _ => None,
+    }
+}
+
+pub(crate) fn normalize_source_filter(value: Option<String>) -> Option<String> {
+    let normalized = value.unwrap_or_default().trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" | "all" => None,
+        other => Some(other.to_string()),
     }
 }
 
@@ -193,6 +203,7 @@ fn to_request_log_summary(item: RequestLog) -> RequestLogSummary {
         .unwrap_or_default();
     RequestLogSummary {
         trace_id: item.trace_id,
+        source: item.source,
         key_id: item.key_id,
         account_id: item.account_id,
         initial_account_id: item.initial_account_id,

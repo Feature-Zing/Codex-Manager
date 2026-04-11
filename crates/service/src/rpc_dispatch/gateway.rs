@@ -114,6 +114,9 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 gateway_keepalive_enabled: super::bool_param(req, "gatewayKeepaliveEnabled")
                     .or_else(|| super::bool_param(req, "gatewayKeepalive")),
                 gateway_keepalive_interval_secs: u64_param(req, "gatewayKeepaliveIntervalSecs"),
+                aggregate_api_probe_enabled: super::bool_param(req, "aggregateApiProbeEnabled")
+                    .or_else(|| super::bool_param(req, "aggregateApiProbe")),
+                aggregate_api_probe_interval_secs: u64_param(req, "aggregateApiProbeIntervalSecs"),
                 token_refresh_polling_enabled: super::bool_param(req, "tokenRefreshPollingEnabled")
                     .or_else(|| super::bool_param(req, "tokenRefreshPolling")),
                 token_refresh_poll_interval_secs: u64_param(req, "tokenRefreshPollIntervalSecs"),
@@ -128,6 +131,8 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 usage_poll_interval_secs: patch.usage_poll_interval_secs,
                 gateway_keepalive_enabled: patch.gateway_keepalive_enabled,
                 gateway_keepalive_interval_secs: patch.gateway_keepalive_interval_secs,
+                aggregate_api_probe_enabled: patch.aggregate_api_probe_enabled,
+                aggregate_api_probe_interval_secs: patch.aggregate_api_probe_interval_secs,
                 token_refresh_polling_enabled: patch.token_refresh_polling_enabled,
                 token_refresh_poll_interval_secs: patch.token_refresh_poll_interval_secs,
                 usage_refresh_workers: patch.usage_refresh_workers,

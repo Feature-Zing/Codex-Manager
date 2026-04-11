@@ -4,9 +4,13 @@ use std::thread;
 use std::time::Duration;
 
 use super::{
-    is_keepalive_error_ignorable, parse_interval_secs,
+    is_keepalive_error_ignorable, parse_interval_secs, run_aggregate_api_probe_once,
+    AGGREGATE_API_PROBE_ENABLED, AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_ENV,
+    AGGREGATE_API_PROBE_INTERVAL_SECS, AGGREGATE_API_PROBE_JITTER_ENV,
     refresh_tokens_before_expiry_for_all_accounts, refresh_usage_for_polling_batch,
     run_gateway_keepalive_once, COMMON_POLL_FAILURE_BACKOFF_MAX_ENV, COMMON_POLL_JITTER_ENV,
+    DEFAULT_AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_SECS,
+    DEFAULT_AGGREGATE_API_PROBE_JITTER_SECS,
     DEFAULT_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS, DEFAULT_GATEWAY_KEEPALIVE_JITTER_SECS,
     DEFAULT_USAGE_POLL_FAILURE_BACKOFF_MAX_SECS, DEFAULT_USAGE_POLL_JITTER_SECS,
     GATEWAY_KEEPALIVE_ENABLED, GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_ENV,
@@ -87,6 +91,32 @@ pub(super) fn gateway_keepalive_loop() {
         },
         run_gateway_keepalive_once,
         |err| !is_keepalive_error_ignorable(err),
+    );
+}
+
+pub(super) fn aggregate_api_probe_loop() {
+    run_dynamic_poll_loop(
+        "aggregate api probe",
+        || AGGREGATE_API_PROBE_ENABLED.load(Ordering::Relaxed),
+        || AGGREGATE_API_PROBE_INTERVAL_SECS.load(Ordering::Relaxed),
+        || {
+            parse_interval_with_fallback(
+                AGGREGATE_API_PROBE_JITTER_ENV,
+                COMMON_POLL_JITTER_ENV,
+                DEFAULT_AGGREGATE_API_PROBE_JITTER_SECS,
+                0,
+            )
+        },
+        |interval_secs| {
+            parse_interval_with_fallback(
+                AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_ENV,
+                COMMON_POLL_FAILURE_BACKOFF_MAX_ENV,
+                DEFAULT_AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_SECS,
+                interval_secs,
+            )
+        },
+        run_aggregate_api_probe_once,
+        |_| true,
     );
 }
 

@@ -1,7 +1,8 @@
 use codexmanager_core::rpc::types::{AggregateApiListResult, JsonRpcRequest, JsonRpcResponse};
 
 use crate::{
-    create_aggregate_api, delete_aggregate_api, list_aggregate_apis, read_aggregate_api_secret,
+    create_aggregate_api, delete_aggregate_api, list_aggregate_api_models,
+    list_aggregate_api_models_draft, list_aggregate_apis, read_aggregate_api_secret,
     test_aggregate_api_connection, update_aggregate_api,
 };
 
@@ -51,6 +52,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .cloned();
             let action_custom_enabled = super::bool_param(req, "actionCustomEnabled");
             let action = super::string_param(req, "action");
+            let models = req
+                .params
+                .as_ref()
+                .and_then(|v| v.get("models"))
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok());
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             super::value_or_error(create_aggregate_api(
@@ -64,6 +71,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 auth_params,
                 action_custom_enabled,
                 action,
+                models,
                 username,
                 password,
             ))
@@ -85,6 +93,12 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 .cloned();
             let action_custom_enabled = super::bool_param(req, "actionCustomEnabled");
             let action = super::string_param(req, "action");
+            let models = req
+                .params
+                .as_ref()
+                .and_then(|v| v.get("models"))
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok());
             let username = super::string_param(req, "username");
             let password = super::string_param(req, "password");
             super::ok_or_error(update_aggregate_api(
@@ -100,6 +114,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 auth_params,
                 action_custom_enabled,
                 action,
+                models,
                 username,
                 password,
             ))
@@ -115,6 +130,34 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/testConnection" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(test_aggregate_api_connection(api_id))
+        }
+        "aggregateApi/listModels" => {
+            let api_id = api_id_param(req).unwrap_or("");
+            super::value_or_error(list_aggregate_api_models(api_id))
+        }
+        "aggregateApi/listModelsDraft" => {
+            let provider_type = super::string_param(req, "providerType");
+            let url = super::string_param(req, "url");
+            let key = super::string_param(req, "key");
+            let auth_type = super::string_param(req, "authType");
+            let auth_custom_enabled = super::bool_param(req, "authCustomEnabled");
+            let auth_params = req
+                .params
+                .as_ref()
+                .and_then(|v| v.get("authParams"))
+                .cloned();
+            let username = super::string_param(req, "username");
+            let password = super::string_param(req, "password");
+            super::value_or_error(list_aggregate_api_models_draft(
+                url,
+                key,
+                provider_type,
+                auth_type,
+                auth_custom_enabled,
+                auth_params,
+                username,
+                password,
+            ))
         }
         _ => return None,
     };
@@ -231,6 +274,30 @@ mod tests {
 
         let with_api_id = try_handle(&rpc_request(
             "aggregateApi/testConnection",
+            serde_json::json!({ "apiId": "ag_test" }),
+        ))
+        .expect("response");
+        assert_ne!(error_message(&with_api_id), "aggregate api id required");
+    }
+
+    #[test]
+    fn aggregate_api_list_models_accepts_id_and_api_id() {
+        let missing = try_handle(&rpc_request(
+            "aggregateApi/listModels",
+            serde_json::json!({}),
+        ))
+        .expect("response");
+        assert_eq!(error_message(&missing), "aggregate api id required");
+
+        let with_id = try_handle(&rpc_request(
+            "aggregateApi/listModels",
+            serde_json::json!({ "id": "ag_test" }),
+        ))
+        .expect("response");
+        assert_ne!(error_message(&with_id), "aggregate api id required");
+
+        let with_api_id = try_handle(&rpc_request(
+            "aggregateApi/listModels",
             serde_json::json!({ "apiId": "ag_test" }),
         ))
         .expect("response");

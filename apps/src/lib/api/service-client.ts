@@ -106,6 +106,7 @@ export const serviceClient = {
   async listRequestLogs(params?: {
     query?: string;
     statusFilter?: string;
+    sourceFilter?: string;
     page?: number;
     pageSize?: number;
   }): Promise<RequestLogListResult> {
@@ -114,6 +115,7 @@ export const serviceClient = {
       withAddr({
         query: params?.query || "",
         statusFilter: params?.statusFilter || "all",
+        sourceFilter: params?.sourceFilter || "all",
         page: params?.page ?? 1,
         pageSize: params?.pageSize ?? 20,
       })
@@ -123,12 +125,14 @@ export const serviceClient = {
   async getRequestLogSummary(params?: {
     query?: string;
     statusFilter?: string;
+    sourceFilter?: string;
   }): Promise<RequestLogFilterSummary> {
     const result = await invoke<unknown>(
       "service_requestlog_summary",
       withAddr({
         query: params?.query || "",
         statusFilter: params?.statusFilter || "all",
+        sourceFilter: params?.sourceFilter || "all",
       })
     );
     return normalizeRequestLogFilterSummary(result);

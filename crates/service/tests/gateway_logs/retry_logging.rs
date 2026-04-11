@@ -280,7 +280,7 @@ fn gateway_request_log_keeps_only_final_result_for_multi_attempt_flow() {
     upstream_join.join().expect("join upstream");
 
     let logs = storage
-        .list_request_logs(Some("key:gk_final_result_only"), 20)
+        .list_request_logs(Some("key:gk_final_result_only"), None, 20)
         .expect("list logs");
     let final_logs = logs
         .iter()

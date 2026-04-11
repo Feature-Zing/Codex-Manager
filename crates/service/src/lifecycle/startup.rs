@@ -76,6 +76,7 @@ pub fn start_server(addr: &str) -> std::io::Result<()> {
     crate::sync_runtime_settings_from_storage();
     crate::usage_refresh::ensure_usage_polling();
     crate::usage_refresh::ensure_gateway_keepalive();
+    crate::usage::refresh::ensure_aggregate_api_probe_polling();
     crate::usage_refresh::ensure_token_refresh_polling();
     crate::plugin::ensure_plugin_scheduler();
     crate::http::server::start_http(addr)

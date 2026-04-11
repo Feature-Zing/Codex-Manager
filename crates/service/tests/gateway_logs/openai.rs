@@ -295,7 +295,7 @@ fn gateway_openai_chat_completions_logs_anthropic_style_cached_tokens() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_chat_cache"), 20)
+            .list_request_logs(Some("key:=gk_openai_chat_cache"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()
@@ -431,7 +431,7 @@ fn gateway_openai_stream_logs_cached_and_reasoning_tokens() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_stream_usage"), 20)
+            .list_request_logs(Some("key:=gk_openai_stream_usage"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()
@@ -682,7 +682,7 @@ fn gateway_openai_stream_usage_with_plain_content_type() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_stream_plain_ct"), 20)
+            .list_request_logs(Some("key:=gk_openai_stream_plain_ct"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()
@@ -932,7 +932,7 @@ fn gateway_openai_non_stream_without_usage_keeps_tokens_null() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_no_usage"), 20)
+            .list_request_logs(Some("key:=gk_openai_no_usage"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()
@@ -1266,7 +1266,7 @@ fn gateway_openai_compact_invalid_success_body_is_mapped_to_502() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_compact_bad"), 20)
+            .list_request_logs(Some("key:=gk_openai_compact_bad"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()
@@ -1569,7 +1569,7 @@ fn gateway_openai_compact_html_non_success_is_mapped_to_structured_403() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_compact_html"), 20)
+            .list_request_logs(Some("key:=gk_openai_compact_html"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()
@@ -1722,7 +1722,7 @@ fn gateway_openai_html_non_success_logs_debug_ids_for_responses() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_openai_html_non_success"), 20)
+            .list_request_logs(Some("key:=gk_openai_html_non_success"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()

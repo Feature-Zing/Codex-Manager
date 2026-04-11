@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clipboard, Database, ShieldCheck } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Clipboard,
+  Database,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -29,7 +38,7 @@ import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
-import { AggregateApi } from "@/types";
+import { AggregateApi, ModelOption } from "@/types";
 
 const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -40,6 +49,7 @@ const AGGREGATE_API_URL_PLACEHOLDERS: Record<string, string> = {
   codex: "例如：https://api.openai.com/v1",
   claude: "例如：https://api.anthropic.com/v1",
 };
+const MODEL_PREVIEW_COUNT = 3;
 
 interface AggregateApiModalProps {
   open: boolean;
@@ -95,11 +105,25 @@ export function AggregateApiModal({
   const [key, setKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsExpanded, setModelsExpanded] = useState(false);
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
     ? t("服务未连接，聚合 API 暂不可编辑；连接恢复后可继续操作。")
     : t("当前运行环境暂不支持聚合 API 管理。");
+
+  const syncAggregateApiModelsCache = (apiId: string, nextModels: ModelOption[]) => {
+    queryClient.setQueryData<AggregateApi[]>(["aggregate-apis"], (current) => {
+      if (!Array.isArray(current)) {
+        return current;
+      }
+      return current.map((item) =>
+        item.id === apiId ? { ...item, models: nextModels } : item
+      );
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -154,11 +178,149 @@ export function AggregateApiModal({
     const nextAction = aggregateApi?.action ?? "";
     setAction(nextAction);
     setActionCustomEnabled(aggregateApi?.action !== null && aggregateApi?.action !== undefined);
+    setModels(Array.isArray(aggregateApi?.models) ? aggregateApi.models : []);
     setKey("");
     setUsername("");
     setPassword("");
     setGeneratedKey("");
+    setModelsExpanded(false);
   }, [aggregateApi, defaultSort, open]);
+
+  useEffect(() => {
+    if (models.length <= MODEL_PREVIEW_COUNT) {
+      setModelsExpanded(false);
+    }
+  }, [models.length]);
+
+  const normalizedModels = useMemo(
+    () =>
+      models
+        .map((item) => ({
+          slug: String(item.slug || "").trim(),
+          displayName: String(item.displayName || "").trim(),
+        }))
+        .filter((item) => item.slug)
+        .map((item) => ({
+          slug: item.slug,
+          displayName: item.displayName || item.slug,
+        })),
+    [models]
+  );
+  const visibleModels = useMemo(
+    () => (modelsExpanded ? models : models.slice(0, MODEL_PREVIEW_COUNT)),
+    [models, modelsExpanded]
+  );
+  const shouldShowModelToggle = models.length > MODEL_PREVIEW_COUNT;
+
+  const handleFetchModels = async () => {
+    if (!isServiceReady) {
+      toast.info(t("服务未连接，暂时无法获取模型列表"));
+      return;
+    }
+    if (!url.trim()) {
+      toast.error(t("请输入聚合 API URL"));
+      return;
+    }
+    if (authType === "apikey" && !aggregateApi?.id && !key.trim()) {
+      toast.error(t("首次获取模型列表前请先填写密钥"));
+      return;
+    }
+    if (
+      authType === "userpass" &&
+      !aggregateApi?.id &&
+      (!username.trim() || !password.trim())
+    ) {
+      toast.error(t("首次获取模型列表前请先填写账号密码"));
+      return;
+    }
+    const authParams =
+      authCustomEnabled && authType === "apikey"
+        ? {
+            location: apiKeyLocation,
+            name: apiKeyName.trim(),
+            headerValueFormat:
+              apiKeyLocation === "header" ? apiKeyHeaderValueFormat : undefined,
+          }
+        : authCustomEnabled && authType === "userpass"
+          ? {
+              mode: userpassMode,
+              usernameName:
+                userpassMode === "headerPair" || userpassMode === "queryPair"
+                  ? userpassUsernameName.trim()
+                  : undefined,
+              passwordName:
+                userpassMode === "headerPair" || userpassMode === "queryPair"
+                  ? userpassPasswordName.trim()
+                  : undefined,
+            }
+          : null;
+    if (authCustomEnabled) {
+      if (authType === "apikey" && !apiKeyName.trim()) {
+        toast.error(t("请输入认证参数名称"));
+        return;
+      }
+      if (
+        authType === "userpass" &&
+        userpassMode !== "basic" &&
+        (!userpassUsernameName.trim() || !userpassPasswordName.trim())
+      ) {
+        toast.error(t("请输入账号密码参数名称"));
+        return;
+      }
+    }
+    setIsFetchingModels(true);
+    try {
+      const items = aggregateApi?.id
+        ? await accountClient.listAggregateApiModels(aggregateApi.id)
+        : await accountClient.listAggregateApiModelsDraft({
+            providerType,
+            url,
+            key: authType === "apikey" ? key : null,
+            authType,
+            authCustomEnabled,
+            authParams,
+            username: authType === "userpass" ? username.trim() : null,
+            password: authType === "userpass" ? password.trim() : null,
+          });
+      setModels(items);
+      setModelsExpanded(false);
+      if (aggregateApi?.id) {
+        syncAggregateApiModelsCache(aggregateApi.id, items);
+      }
+      toast.success(
+        t("已获取 {count} 个模型", {
+          count: items.length,
+        })
+      );
+    } catch (error: unknown) {
+      toast.error(
+        `${t("获取模型列表失败")}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
+  const updateModelAt = (
+    index: number,
+    field: keyof ModelOption,
+    value: string
+  ) => {
+    setModels((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item
+      )
+    );
+  };
+
+  const addModel = () => {
+    setModelsExpanded(true);
+    setModels((current) => [...current, { slug: "", displayName: "" }]);
+  };
+
+  const removeModelAt = (index: number) => {
+    setModels((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  };
 
   /**
    * 函数 `handleSave`
@@ -277,9 +439,11 @@ export function AggregateApiModal({
           authParams,
           actionCustomEnabled,
           action: actionCustomEnabled ? action.trim() : null,
+          models: normalizedModels,
           username: authType === "userpass" ? username.trim() || null : null,
           password: authType === "userpass" ? password.trim() || null : null,
         });
+        syncAggregateApiModelsCache(aggregateApi.id, normalizedModels);
         toast.success(t("聚合 API 已更新"));
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
@@ -301,6 +465,7 @@ export function AggregateApiModal({
         authParams,
         actionCustomEnabled,
         action: actionCustomEnabled ? action.trim() : null,
+        models: normalizedModels,
         username: authType === "userpass" ? username.trim() : null,
         password: authType === "userpass" ? password.trim() : null,
       });
@@ -384,7 +549,12 @@ export function AggregateApiModal({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
+                    <p className="text-[11px] leading-4 text-muted-foreground">
+                      {t("值越小越靠前，用于聚合 API 轮转优先级")}
+                    </p>
+                  </div>
                   <Input
                     id="aggregate-api-sort"
                     type="number"
@@ -394,9 +564,6 @@ export function AggregateApiModal({
                     disabled={!isServiceReady}
                     onChange={(event) => setSortDraft(event.target.value)}
                   />
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    {t("值越小越靠前，用于聚合 API 轮转优先级")}
-                  </p>
                 </div>
 
                 <div className="grid gap-2">
@@ -689,6 +856,124 @@ export function AggregateApiModal({
                     </div>
                   ) : null}
                 </div>
+              </div>
+
+              <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-sm">{t("模型列表")}</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("支持手动维护；填写 URL 和凭证后即可获取，并在保存时持久化当前列表。")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-2"
+                      disabled={isFetchingModels}
+                      onClick={() => void handleFetchModels()}
+                    >
+                      <RefreshCw
+                        className={
+                          isFetchingModels ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"
+                        }
+                      />
+                      {t("获取模型列表")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-2"
+                      disabled={!isServiceReady}
+                      onClick={addModel}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t("新增")}
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  {models.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border/70 px-3 py-6 text-center text-sm text-muted-foreground">
+                      {aggregateApi?.id
+                        ? t("暂无模型，点击“获取模型列表”或手动新增")
+                        : t("填写 URL 和凭证后可直接获取，也可以先手动录入")}
+                    </div>
+                  ) : (
+                    visibleModels.map((item, index) => (
+                      <div
+                        key={`${index}-${item.slug}-${item.displayName}`}
+                        className="grid gap-2 rounded-lg border border-border/60 bg-background/40 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+                      >
+                        <div className="grid gap-2">
+                          <Label className="text-xs">{t("模型 ID")}</Label>
+                          <Input
+                            value={item.slug}
+                            disabled={!isServiceReady}
+                            placeholder={t("例如：gpt-5")}
+                            onChange={(event) =>
+                              updateModelAt(index, "slug", event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label className="text-xs">{t("显示名称")}</Label>
+                          <Input
+                            value={item.displayName}
+                            disabled={!isServiceReady}
+                            placeholder={t("留空则默认使用模型 ID")}
+                            onChange={(event) =>
+                              updateModelAt(index, "displayName", event.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="flex items-end justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-muted-foreground"
+                            disabled={!isServiceReady}
+                            onClick={() => removeModelAt(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {shouldShowModelToggle ? (
+                  <div className="flex justify-center">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 text-muted-foreground"
+                      onClick={() => setModelsExpanded((current) => !current)}
+                    >
+                      {modelsExpanded ? (
+                        <>
+                          <ChevronUp className="h-3.5 w-3.5" />
+                          {t("收起")}
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-3.5 w-3.5" />
+                          {t("展开全部 ({count})", { count: models.length })}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
+                {normalizedModels.length > 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("将保存 {count} 个有效模型", { count: normalizedModels.length })}
+                  </p>
+                ) : null}
               </div>
 
               {generatedKey ? (

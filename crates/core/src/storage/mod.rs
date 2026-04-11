@@ -105,6 +105,7 @@ pub struct ConversationBinding {
 #[derive(Debug, Clone, Default)]
 pub struct RequestLog {
     pub trace_id: Option<String>,
+    pub source: Option<String>,
     pub key_id: Option<String>,
     pub account_id: Option<String>,
     pub initial_account_id: Option<String>,
@@ -226,6 +227,7 @@ pub struct AggregateApi {
     pub url: String,
     pub auth_type: String,
     pub auth_params_json: Option<String>,
+    pub models_json: Option<String>,
     pub action: Option<String>,
     pub status: String,
     pub created_at: i64,
@@ -233,6 +235,11 @@ pub struct AggregateApi {
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub last_probe_at: Option<i64>,
+    pub last_probe_status: Option<String>,
+    pub last_probe_error: Option<String>,
+    pub last_probe_latency_ms: Option<i64>,
+    pub last_probe_http_status: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -573,6 +580,21 @@ impl Storage {
             include_str!("../../migrations/044_request_logs_final_upstream_attempt_duration.sql"),
             |s| s.ensure_request_log_final_upstream_attempt_duration_column(),
         )?;
+        self.apply_sql_or_compat_migration(
+            "046_aggregate_api_probe_fields",
+            include_str!("../../migrations/046_aggregate_api_probe_fields.sql"),
+            |s| s.ensure_aggregate_apis_table(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "047_request_logs_source",
+            include_str!("../../migrations/047_request_logs_source.sql"),
+            |s| s.ensure_request_log_source_column(),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "048_aggregate_api_models_json",
+            include_str!("../../migrations/048_aggregate_api_models_json.sql"),
+            |s| s.ensure_aggregate_apis_table(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -581,6 +603,7 @@ impl Storage {
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
         self.ensure_request_log_final_upstream_attempt_duration_column()?;
+        self.ensure_request_log_source_column()?;
         Ok(())
     }
 

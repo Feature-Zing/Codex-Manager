@@ -84,6 +84,8 @@ fn reset_runtime_defaults() {
             "usagePollIntervalSecs": 600,
             "gatewayKeepaliveEnabled": true,
             "gatewayKeepaliveIntervalSecs": 180,
+            "aggregateApiProbeEnabled": false,
+            "aggregateApiProbeIntervalSecs": 180,
             "tokenRefreshPollingEnabled": true,
             "tokenRefreshPollIntervalSecs": 60,
             "usageRefreshWorkers": 4,
@@ -316,6 +318,8 @@ fn app_settings_set_persists_snapshot_and_password_hash() {
                 "usagePollIntervalSecs": 900,
                 "gatewayKeepaliveEnabled": false,
                 "gatewayKeepaliveIntervalSecs": 240,
+                "aggregateApiProbeEnabled": true,
+                "aggregateApiProbeIntervalSecs": 300,
                 "tokenRefreshPollingEnabled": true,
                 "tokenRefreshPollIntervalSecs": 120,
                 "usageRefreshWorkers": 6,
@@ -626,6 +630,8 @@ fn sync_runtime_settings_from_storage_applies_saved_runtime_values() {
                     "usagePollIntervalSecs": 777,
                     "gatewayKeepaliveEnabled": true,
                     "gatewayKeepaliveIntervalSecs": 180,
+                    "aggregateApiProbeEnabled": true,
+                    "aggregateApiProbeIntervalSecs": 240,
                     "tokenRefreshPollingEnabled": true,
                     "tokenRefreshPollIntervalSecs": 60,
                     "usageRefreshWorkers": 4,
@@ -793,6 +799,8 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
             ("CODEXMANAGER_USAGE_POLL_INTERVAL_SECS", Some("777")),
             ("CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED", Some("0")),
             ("CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS", Some("240")),
+            ("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED", Some("1")),
+            ("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS", Some("300")),
             ("CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED", Some("0")),
             ("CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS", Some("120")),
             ("CODEXMANAGER_USAGE_REFRESH_WORKERS", Some("6")),
@@ -892,6 +900,20 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
         assert_eq!(
             snapshot
                 .get("backgroundTasks")
+                .and_then(|value| value.get("aggregateApiProbeEnabled"))
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            snapshot
+                .get("backgroundTasks")
+                .and_then(|value| value.get("aggregateApiProbeIntervalSecs"))
+                .and_then(|value| value.as_u64()),
+            Some(300)
+        );
+        assert_eq!(
+            snapshot
+                .get("backgroundTasks")
                 .and_then(|value| value.get("tokenRefreshPollIntervalSecs"))
                 .and_then(|value| value.as_u64()),
             Some(120)
@@ -965,6 +987,55 @@ fn app_settings_get_loads_env_backed_dedicated_settings_when_storage_missing() {
                 )
                 .expect("read sse keepalive interval"),
             Some("14000".to_string())
+        );
+    });
+}
+
+#[test]
+fn persisted_aggregate_api_probe_setting_survives_unrelated_background_env_overrides() {
+    with_temp_db(|_| {
+        let _ = codexmanager_service::app_settings_set(Some(&json!({
+            "backgroundTasks": {
+                "usagePollingEnabled": false,
+                "usagePollIntervalSecs": 900,
+                "gatewayKeepaliveEnabled": false,
+                "gatewayKeepaliveIntervalSecs": 240,
+                "aggregateApiProbeEnabled": true,
+                "aggregateApiProbeIntervalSecs": 300,
+                "tokenRefreshPollingEnabled": true,
+                "tokenRefreshPollIntervalSecs": 120,
+                "usageRefreshWorkers": 6,
+                "httpWorkerFactor": 5,
+                "httpWorkerMin": 9,
+                "httpStreamWorkerFactor": 2,
+                "httpStreamWorkerMin": 3
+            }
+        })))
+        .expect("save settings");
+
+        let _env = override_env_vars(&[
+            ("CODEXMANAGER_USAGE_POLLING_ENABLED", Some("1")),
+            ("CODEXMANAGER_USAGE_POLL_INTERVAL_SECS", Some("777")),
+            ("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED", None),
+            ("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS", None),
+        ]);
+
+        codexmanager_service::sync_runtime_settings_from_storage();
+        let snapshot = codexmanager_service::app_settings_get().expect("get app settings");
+
+        assert_eq!(
+            snapshot
+                .get("backgroundTasks")
+                .and_then(|value| value.get("aggregateApiProbeEnabled"))
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            snapshot
+                .get("backgroundTasks")
+                .and_then(|value| value.get("aggregateApiProbeIntervalSecs"))
+                .and_then(|value| value.as_u64()),
+            Some(300)
         );
     });
 }

@@ -631,7 +631,7 @@ async fn official_responses_websocket_proxies_frames_and_headers() {
     assert_eq!(capture.frames.len(), 2);
 
     let request_logs = storage
-        .list_request_logs(None, 10)
+        .list_request_logs(None, None, 10)
         .expect("list request logs");
     let ws_logs: Vec<_> = request_logs
         .iter()

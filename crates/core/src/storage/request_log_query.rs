@@ -76,6 +76,7 @@ fn parse_prefixed_request_log_query(raw: &str) -> Option<RequestLogQuery> {
             needle,
         )),
         "adapter" => Some(parse_field_query("response_adapter", is_exact, needle)),
+        "source" => Some(parse_field_query("source", is_exact, needle)),
         "error" => Some(parse_field_query("error", is_exact, needle)),
         "key" | "key_id" => Some(parse_field_query("key_id", is_exact, needle)),
         "trace" | "trace_id" => Some(parse_field_query("trace_id", is_exact, needle)),

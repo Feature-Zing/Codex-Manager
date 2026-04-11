@@ -1,4 +1,18 @@
 use super::*;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AggregateApiListModelsDraftPayload {
+    provider_type: Option<String>,
+    url: Option<String>,
+    key: Option<String>,
+    auth_type: Option<String>,
+    auth_custom_enabled: Option<bool>,
+    auth_params: Option<serde_json::Value>,
+    username: Option<String>,
+    password: Option<String>,
+}
 
 /// 函数 `should_spawn_service`
 ///
@@ -309,6 +323,46 @@ pub(super) async fn rpc_proxy(
         axum::http::HeaderValue::from_static("application/json"),
     );
     out
+}
+
+pub(super) async fn aggregate_api_list_models_draft(
+    Json(payload): Json<AggregateApiListModelsDraftPayload>,
+) -> Response {
+    let task = tokio::task::spawn_blocking(move || {
+        codexmanager_service::list_aggregate_api_models_draft(
+            payload.url,
+            payload.key,
+            payload.provider_type,
+            payload.auth_type,
+            payload.auth_custom_enabled,
+            payload.auth_params,
+            payload.username,
+            payload.password,
+        )
+    })
+    .await;
+
+    match task {
+        Ok(Ok(result)) => Json(result).into_response(),
+        Ok(Err(err)) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": {
+                    "message": err
+                }
+            })),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": {
+                    "message": format!("spawn draft model fetch failed: {err}")
+                }
+            })),
+        )
+            .into_response(),
+    }
 }
 
 /// 函数 `format_upstream_error_message`

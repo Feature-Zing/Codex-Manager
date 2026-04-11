@@ -31,21 +31,6 @@ fn process_env_has_value(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 函数 `any_process_env_has_value`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - names: 参数 names
-///
-/// # 返回
-/// 返回函数执行结果
-fn any_process_env_has_value(names: &[&str]) -> bool {
-    names.iter().any(|name| process_env_has_value(name))
-}
-
 /// 函数 `sync_runtime_settings_from_storage`
 ///
 /// 作者: gaohongshun
@@ -158,26 +143,52 @@ pub fn sync_runtime_settings_from_storage() {
             }
         }
     }
-    if !any_process_env_has_value(&[
-        "CODEXMANAGER_USAGE_POLLING_ENABLED",
-        "CODEXMANAGER_USAGE_POLL_INTERVAL_SECS",
-        "CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED",
-        "CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS",
-        "CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED",
-        "CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS",
-        "CODEXMANAGER_HTTP_WORKER_FACTOR",
-        "CODEXMANAGER_HTTP_WORKER_MIN",
-        "CODEXMANAGER_HTTP_STREAM_WORKER_FACTOR",
-        "CODEXMANAGER_HTTP_STREAM_WORKER_MIN",
-    ]) {
-        if let Some(raw) = settings.get(APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY) {
-            match serde_json::from_str::<BackgroundTasksInput>(raw) {
-                Ok(input) => {
-                    usage_refresh::set_background_tasks_settings(input.into_patch());
+    if let Some(raw) = settings.get(APP_SETTING_GATEWAY_BACKGROUND_TASKS_KEY) {
+        match serde_json::from_str::<BackgroundTasksInput>(raw) {
+            Ok(mut input) => {
+                if process_env_has_value("CODEXMANAGER_USAGE_POLLING_ENABLED") {
+                    input.usage_polling_enabled = None;
                 }
-                Err(err) => {
-                    log::warn!("parse persisted background tasks failed: {err}");
+                if process_env_has_value("CODEXMANAGER_USAGE_POLL_INTERVAL_SECS") {
+                    input.usage_poll_interval_secs = None;
                 }
+                if process_env_has_value("CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED") {
+                    input.gateway_keepalive_enabled = None;
+                }
+                if process_env_has_value("CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS") {
+                    input.gateway_keepalive_interval_secs = None;
+                }
+                if process_env_has_value("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED") {
+                    input.aggregate_api_probe_enabled = None;
+                }
+                if process_env_has_value("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS") {
+                    input.aggregate_api_probe_interval_secs = None;
+                }
+                if process_env_has_value("CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED") {
+                    input.token_refresh_polling_enabled = None;
+                }
+                if process_env_has_value("CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS") {
+                    input.token_refresh_poll_interval_secs = None;
+                }
+                if process_env_has_value("CODEXMANAGER_USAGE_REFRESH_WORKERS") {
+                    input.usage_refresh_workers = None;
+                }
+                if process_env_has_value("CODEXMANAGER_HTTP_WORKER_FACTOR") {
+                    input.http_worker_factor = None;
+                }
+                if process_env_has_value("CODEXMANAGER_HTTP_WORKER_MIN") {
+                    input.http_worker_min = None;
+                }
+                if process_env_has_value("CODEXMANAGER_HTTP_STREAM_WORKER_FACTOR") {
+                    input.http_stream_worker_factor = None;
+                }
+                if process_env_has_value("CODEXMANAGER_HTTP_STREAM_WORKER_MIN") {
+                    input.http_stream_worker_min = None;
+                }
+                usage_refresh::set_background_tasks_settings(input.into_patch());
+            }
+            Err(err) => {
+                log::warn!("parse persisted background tasks failed: {err}");
             }
         }
     }

@@ -232,6 +232,33 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         )
         .expect("count 043 migration");
     assert_eq!(applied_043, 1);
+    let applied_046: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '046_aggregate_api_probe_fields'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 046 migration");
+    assert_eq!(applied_046, 1);
+    let applied_047: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '047_request_logs_source'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 047 migration");
+    assert_eq!(applied_047, 1);
+    let applied_048: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(1) FROM schema_migrations WHERE version = '048_aggregate_api_models_json'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count 048 migration");
+    assert_eq!(applied_048, 1);
 
     assert!(!storage
         .has_column("accounts", "note")
@@ -282,8 +309,29 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .has_column("request_logs", "final_upstream_attempt_duration_ms")
         .expect("check request_logs.final_upstream_attempt_duration_ms"));
     assert!(storage
+        .has_column("request_logs", "source")
+        .expect("check request_logs.source"));
+    assert!(storage
         .has_column("app_settings", "value")
         .expect("check app_settings.value"));
+    assert!(storage
+        .has_column("aggregate_apis", "last_probe_at")
+        .expect("check aggregate_apis.last_probe_at"));
+    assert!(storage
+        .has_column("aggregate_apis", "last_probe_status")
+        .expect("check aggregate_apis.last_probe_status"));
+    assert!(storage
+        .has_column("aggregate_apis", "last_probe_error")
+        .expect("check aggregate_apis.last_probe_error"));
+    assert!(storage
+        .has_column("aggregate_apis", "last_probe_latency_ms")
+        .expect("check aggregate_apis.last_probe_latency_ms"));
+    assert!(storage
+        .has_column("aggregate_apis", "last_probe_http_status")
+        .expect("check aggregate_apis.last_probe_http_status"));
+    assert!(storage
+        .has_column("aggregate_apis", "models_json")
+        .expect("check aggregate_apis.models_json"));
     assert!(storage
         .has_column("login_sessions", "workspace_id")
         .expect("check login_sessions.workspace_id"));

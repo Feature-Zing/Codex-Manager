@@ -150,7 +150,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
     assert!(token_err.is_none(), "token stat should insert");
 
     let logs = storage
-        .list_request_logs(None, 10)
+        .list_request_logs(None, None, 10)
         .expect("list request logs");
     assert_eq!(logs.len(), 1);
     let row = &logs[0];
@@ -329,13 +329,13 @@ fn request_logs_support_backend_pagination_and_status_filters() {
     }
 
     let page = storage
-        .list_request_logs_paginated(None, Some("5xx"), 0, 1)
+        .list_request_logs_paginated(None, Some("5xx"), None, 0, 1)
         .expect("list paginated logs");
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].trace_id.as_deref(), Some("trc-4"));
 
     let total_5xx = storage
-        .count_request_logs(None, Some("5xx"))
+        .count_request_logs(None, Some("5xx"), None)
         .expect("count 5xx logs");
     assert_eq!(total_5xx, 2);
 }
@@ -410,7 +410,7 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
     }
 
     let summary = storage
-        .summarize_request_logs_filtered(None, Some("all"))
+        .summarize_request_logs_filtered(None, Some("all"), None)
         .expect("summarize filtered logs");
     assert_eq!(summary.count, 3);
     assert_eq!(summary.success_count, 2);

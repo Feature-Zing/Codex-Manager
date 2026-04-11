@@ -850,36 +850,36 @@ fn request_logs_support_prefixed_query_filters() {
         .expect("insert request log 2");
 
     let method_filtered = storage
-        .list_request_logs(Some("method:GET"), 100)
+        .list_request_logs(Some("method:GET"), None, 100)
         .expect("filter by method");
     assert_eq!(method_filtered.len(), 1);
     assert_eq!(method_filtered[0].method, "GET");
 
     let status_filtered = storage
-        .list_request_logs(Some("status:5xx"), 100)
+        .list_request_logs(Some("status:5xx"), None, 100)
         .expect("filter by status range");
     assert_eq!(status_filtered.len(), 1);
     assert_eq!(status_filtered[0].status_code, Some(503));
 
     let key_filtered = storage
-        .list_request_logs(Some("key:key-alpha"), 100)
+        .list_request_logs(Some("key:key-alpha"), None, 100)
         .expect("filter by key id");
     assert_eq!(key_filtered.len(), 2);
 
     let key_exact_filtered = storage
-        .list_request_logs(Some("key:=key-alpha"), 100)
+        .list_request_logs(Some("key:=key-alpha"), None, 100)
         .expect("filter by exact key id");
     assert_eq!(key_exact_filtered.len(), 1);
     assert_eq!(key_exact_filtered[0].key_id.as_deref(), Some("key-alpha"));
 
     let trace_filtered = storage
-        .list_request_logs(Some("trace:=trc-alpha"), 100)
+        .list_request_logs(Some("trace:=trc-alpha"), None, 100)
         .expect("filter by trace id");
     assert_eq!(trace_filtered.len(), 1);
     assert_eq!(trace_filtered[0].trace_id.as_deref(), Some("trc-alpha"));
 
     let original_path_filtered = storage
-        .list_request_logs(Some("original:=/v1/chat/completions"), 100)
+        .list_request_logs(Some("original:=/v1/chat/completions"), None, 100)
         .expect("filter by original path");
     assert_eq!(original_path_filtered.len(), 1);
     assert_eq!(
@@ -888,7 +888,7 @@ fn request_logs_support_prefixed_query_filters() {
     );
 
     let adapter_filtered = storage
-        .list_request_logs(Some("adapter:=OpenAIChatCompletionsJson"), 100)
+        .list_request_logs(Some("adapter:=OpenAIChatCompletionsJson"), None, 100)
         .expect("filter by response adapter");
     assert_eq!(adapter_filtered.len(), 1);
     assert_eq!(
@@ -897,7 +897,7 @@ fn request_logs_support_prefixed_query_filters() {
     );
 
     let effective_tier_filtered = storage
-        .list_request_logs(Some("effective_tier:=priority"), 100)
+        .list_request_logs(Some("effective_tier:=priority"), None, 100)
         .expect("filter by effective service tier");
     assert_eq!(effective_tier_filtered.len(), 1);
     assert_eq!(
@@ -906,7 +906,7 @@ fn request_logs_support_prefixed_query_filters() {
     );
 
     let fallback_filtered = storage
-        .list_request_logs(Some("timeout"), 100)
+        .list_request_logs(Some("timeout"), None, 100)
         .expect("fallback fuzzy query");
     assert_eq!(fallback_filtered.len(), 1);
     assert_eq!(
@@ -915,7 +915,7 @@ fn request_logs_support_prefixed_query_filters() {
     );
 
     let account_label_filtered = storage
-        .list_request_logs(Some("owner-alpha@example.com"), 100)
+        .list_request_logs(Some("owner-alpha@example.com"), None, 100)
         .expect("filter by account label");
     assert_eq!(account_label_filtered.len(), 2);
     assert!(account_label_filtered
@@ -923,7 +923,7 @@ fn request_logs_support_prefixed_query_filters() {
         .all(|log| log.account_id.as_deref() == Some("acc-1")));
 
     let account_prefixed_filtered = storage
-        .list_request_logs(Some("account:=owner-alpha@example.com"), 100)
+        .list_request_logs(Some("account:=owner-alpha@example.com"), None, 100)
         .expect("filter by account label with account prefix");
     assert_eq!(account_prefixed_filtered.len(), 2);
     assert!(account_prefixed_filtered
@@ -1075,7 +1075,7 @@ fn insert_request_log_with_token_stat_writes_both_tables_in_one_call() {
     );
 
     let logs = storage
-        .list_request_logs(Some("key:=key-atomic"), 10)
+        .list_request_logs(Some("key:=key-atomic"), None, 10)
         .expect("list logs");
     assert_eq!(logs.len(), 1);
     assert_eq!(logs[0].key_id.as_deref(), Some("key-atomic"));
@@ -1150,7 +1150,7 @@ fn clear_request_logs_keeps_token_stats_for_usage_summary() {
 
     storage.clear_request_logs().expect("clear request logs");
 
-    let logs = storage.list_request_logs(None, 100).expect("list logs");
+    let logs = storage.list_request_logs(None, None, 100).expect("list logs");
     assert!(logs.is_empty(), "request logs should be cleared");
 
     let summary = storage

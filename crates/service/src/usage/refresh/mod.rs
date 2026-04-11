@@ -3,7 +3,7 @@ use codexmanager_core::storage::{now_ts, Account, Storage, Token};
 use codexmanager_core::usage::parse_usage_snapshot;
 use crossbeam_channel::unbounded;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -17,11 +17,13 @@ use crate::usage_account_meta::{
 use crate::usage_http::fetch_usage_snapshot;
 use crate::usage_keepalive::{is_keepalive_error_ignorable, run_gateway_keepalive_once};
 use crate::usage_scheduler::{
+    DEFAULT_AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_SECS,
+    DEFAULT_AGGREGATE_API_PROBE_INTERVAL_SECS, DEFAULT_AGGREGATE_API_PROBE_JITTER_SECS,
     parse_interval_secs, DEFAULT_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS,
     DEFAULT_GATEWAY_KEEPALIVE_INTERVAL_SECS, DEFAULT_GATEWAY_KEEPALIVE_JITTER_SECS,
     DEFAULT_USAGE_POLL_FAILURE_BACKOFF_MAX_SECS, DEFAULT_USAGE_POLL_INTERVAL_SECS,
-    DEFAULT_USAGE_POLL_JITTER_SECS, MIN_GATEWAY_KEEPALIVE_INTERVAL_SECS,
-    MIN_USAGE_POLL_INTERVAL_SECS,
+    DEFAULT_USAGE_POLL_JITTER_SECS, MIN_AGGREGATE_API_PROBE_INTERVAL_SECS,
+    MIN_GATEWAY_KEEPALIVE_INTERVAL_SECS, MIN_USAGE_POLL_INTERVAL_SECS,
 };
 use crate::usage_snapshot_store::store_usage_snapshot;
 use crate::usage_token_refresh::refresh_and_persist_access_token;
@@ -34,6 +36,7 @@ mod settings;
 
 static USAGE_POLLING_STARTED: OnceLock<()> = OnceLock::new();
 static GATEWAY_KEEPALIVE_STARTED: OnceLock<()> = OnceLock::new();
+static AGGREGATE_API_PROBE_STARTED: OnceLock<()> = OnceLock::new();
 static TOKEN_REFRESH_POLLING_STARTED: OnceLock<()> = OnceLock::new();
 static BACKGROUND_TASKS_CONFIG_LOADED: OnceLock<()> = OnceLock::new();
 static USAGE_POLL_CURSOR: AtomicUsize = AtomicUsize::new(0);
@@ -42,6 +45,9 @@ static USAGE_POLL_INTERVAL_SECS: AtomicU64 = AtomicU64::new(DEFAULT_USAGE_POLL_I
 static GATEWAY_KEEPALIVE_ENABLED: AtomicBool = AtomicBool::new(true);
 static GATEWAY_KEEPALIVE_INTERVAL_SECS: AtomicU64 =
     AtomicU64::new(DEFAULT_GATEWAY_KEEPALIVE_INTERVAL_SECS);
+static AGGREGATE_API_PROBE_ENABLED: AtomicBool = AtomicBool::new(false);
+static AGGREGATE_API_PROBE_INTERVAL_SECS: AtomicU64 =
+    AtomicU64::new(DEFAULT_AGGREGATE_API_PROBE_INTERVAL_SECS);
 static TOKEN_REFRESH_POLLING_ENABLED: AtomicBool = AtomicBool::new(true);
 static TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC: AtomicU64 =
     AtomicU64::new(DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS);
@@ -58,6 +64,9 @@ const ENV_USAGE_POLL_BATCH_LIMIT: &str = "CODEXMANAGER_USAGE_POLL_BATCH_LIMIT";
 const ENV_USAGE_POLL_CYCLE_BUDGET_SECS: &str = "CODEXMANAGER_USAGE_POLL_CYCLE_BUDGET_SECS";
 const ENV_GATEWAY_KEEPALIVE_ENABLED: &str = "CODEXMANAGER_GATEWAY_KEEPALIVE_ENABLED";
 const ENV_GATEWAY_KEEPALIVE_INTERVAL_SECS: &str = "CODEXMANAGER_GATEWAY_KEEPALIVE_INTERVAL_SECS";
+const ENV_AGGREGATE_API_PROBE_ENABLED: &str = "CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED";
+const ENV_AGGREGATE_API_PROBE_INTERVAL_SECS: &str =
+    "CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS";
 const ENV_TOKEN_REFRESH_POLLING_ENABLED: &str = "CODEXMANAGER_TOKEN_REFRESH_POLLING_ENABLED";
 const ENV_TOKEN_REFRESH_POLL_INTERVAL_SECS: &str = "CODEXMANAGER_TOKEN_REFRESH_POLL_INTERVAL_SECS";
 const ENV_TOKEN_REFRESH_BATCH_LIMIT: &str = "CODEXMANAGER_TOKEN_REFRESH_BATCH_LIMIT";
@@ -80,6 +89,9 @@ const ENV_HTTP_STREAM_WORKER_MIN: &str = "CODEXMANAGER_HTTP_STREAM_WORKER_MIN";
 const GATEWAY_KEEPALIVE_JITTER_ENV: &str = "CODEXMANAGER_GATEWAY_KEEPALIVE_JITTER_SECS";
 const GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_ENV: &str =
     "CODEXMANAGER_GATEWAY_KEEPALIVE_FAILURE_BACKOFF_MAX_SECS";
+const AGGREGATE_API_PROBE_JITTER_ENV: &str = "CODEXMANAGER_AGGREGATE_API_PROBE_JITTER_SECS";
+const AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_ENV: &str =
+    "CODEXMANAGER_AGGREGATE_API_PROBE_FAILURE_BACKOFF_MAX_SECS";
 const DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 60;
 const MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS: u64 = 10;
 const TOKEN_REFRESH_FAILURE_BACKOFF_MAX_SECS: u64 = 300;
@@ -140,7 +152,10 @@ use self::errors::{
 #[cfg(test)]
 use self::queue::clear_pending_usage_refresh_tasks_for_tests;
 pub(crate) use self::queue::enqueue_usage_refresh_with_worker;
-use self::runner::{gateway_keepalive_loop, token_refresh_polling_loop, usage_polling_loop};
+use self::runner::{
+    aggregate_api_probe_loop, gateway_keepalive_loop, token_refresh_polling_loop,
+    usage_polling_loop,
+};
 use self::settings::ensure_background_tasks_config_loaded;
 pub(crate) use self::settings::{
     background_tasks_settings, reload_background_tasks_runtime_from_env,
@@ -183,6 +198,13 @@ pub(crate) fn ensure_gateway_keepalive() {
     });
 }
 
+pub(crate) fn ensure_aggregate_api_probe_polling() {
+    ensure_background_tasks_config_loaded();
+    AGGREGATE_API_PROBE_STARTED.get_or_init(|| {
+        spawn_background_loop("aggregate-api-probe", aggregate_api_probe_loop);
+    });
+}
+
 /// 函数 `ensure_token_refresh_polling`
 ///
 /// 作者: gaohongshun
@@ -199,6 +221,21 @@ pub(crate) fn ensure_token_refresh_polling() {
     TOKEN_REFRESH_POLLING_STARTED.get_or_init(|| {
         spawn_background_loop("token-refresh-polling", token_refresh_polling_loop);
     });
+}
+
+pub(crate) fn run_aggregate_api_probe_once() -> Result<(), String> {
+    crate::aggregate_api::refresh_aggregate_api_probe_results()
+}
+
+pub(crate) fn aggregate_api_probe_enabled() -> bool {
+    ensure_background_tasks_config_loaded();
+    AGGREGATE_API_PROBE_ENABLED.load(Ordering::Relaxed)
+}
+
+pub(crate) fn aggregate_api_probe_freshness_window_secs() -> i64 {
+    ensure_background_tasks_config_loaded();
+    let interval_secs = AGGREGATE_API_PROBE_INTERVAL_SECS.load(Ordering::Relaxed);
+    interval_secs.max(DEFAULT_AGGREGATE_API_PROBE_INTERVAL_SECS).saturating_mul(2) as i64
 }
 
 /// 函数 `spawn_background_loop`

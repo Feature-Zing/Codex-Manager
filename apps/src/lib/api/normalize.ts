@@ -44,6 +44,8 @@ const DEFAULT_BACKGROUND_TASKS: BackgroundTaskSettings = {
   usagePollIntervalSecs: 600,
   gatewayKeepaliveEnabled: true,
   gatewayKeepaliveIntervalSecs: 180,
+  aggregateApiProbeEnabled: false,
+  aggregateApiProbeIntervalSecs: 180,
   tokenRefreshPollingEnabled: true,
   tokenRefreshPollIntervalSecs: 60,
   usageRefreshWorkers: 4,
@@ -587,6 +589,7 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
         : source.auth_params && typeof source.auth_params === "object"
           ? asObject(source.auth_params)
           : null,
+    models: normalizeModelOptions(source.models),
     action:
       typeof source.action === "string"
         ? source.action
@@ -597,6 +600,15 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
     lastTestAt: toNullableNumber(source.lastTestAt ?? source.last_test_at),
     lastTestStatus: asString(source.lastTestStatus ?? source.last_test_status) || null,
     lastTestError: asString(source.lastTestError ?? source.last_test_error) || null,
+    lastProbeAt: toNullableNumber(source.lastProbeAt ?? source.last_probe_at),
+    lastProbeStatus: asString(source.lastProbeStatus ?? source.last_probe_status) || null,
+    lastProbeError: asString(source.lastProbeError ?? source.last_probe_error) || null,
+    lastProbeLatencyMs: toNullableNumber(
+      source.lastProbeLatencyMs ?? source.last_probe_latency_ms,
+    ),
+    lastProbeHttpStatus: toNullableNumber(
+      source.lastProbeHttpStatus ?? source.last_probe_http_status,
+    ),
   };
 }
 
@@ -1067,6 +1079,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
   return {
     id,
     traceId,
+    source: asString(source.source) || "user",
     keyId,
     accountId,
     initialAccountId: asString(source.initialAccountId ?? source.initial_account_id),
@@ -1242,6 +1255,17 @@ export function normalizeRequestLogFilterSummary(
     errorCount: asInteger(source.errorCount, 0, 0),
     totalTokens: asInteger(source.totalTokens, 0, 0),
     totalCostUsd: Math.max(0, toNullableNumber(source.totalCostUsd) ?? 0),
+    sourceBreakdown: asArray(source.sourceBreakdown).reduce<
+      { source: string; count: number }[]
+    >((result, item) => {
+      const record = asObject(item);
+      const name = asString(record.source) || "user";
+      result.push({
+        source: name,
+        count: asInteger(record.count, 0, 0),
+      });
+      return result;
+    }, []),
   };
 }
 
@@ -1277,6 +1301,15 @@ export function normalizeBackgroundTasks(payload: unknown): BackgroundTaskSettin
     gatewayKeepaliveIntervalSecs: asInteger(
       source.gatewayKeepaliveIntervalSecs,
       DEFAULT_BACKGROUND_TASKS.gatewayKeepaliveIntervalSecs,
+      1
+    ),
+    aggregateApiProbeEnabled: asBoolean(
+      source.aggregateApiProbeEnabled,
+      DEFAULT_BACKGROUND_TASKS.aggregateApiProbeEnabled
+    ),
+    aggregateApiProbeIntervalSecs: asInteger(
+      source.aggregateApiProbeIntervalSecs,
+      DEFAULT_BACKGROUND_TASKS.aggregateApiProbeIntervalSecs,
       1
     ),
     tokenRefreshPollingEnabled: asBoolean(

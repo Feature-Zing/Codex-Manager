@@ -111,6 +111,7 @@ export interface AggregateApi {
   url: string;
   authType: string;
   authParams: Record<string, unknown> | null;
+  models: ModelOption[];
   action: string | null;
   status: string;
   createdAt: number | null;
@@ -118,6 +119,11 @@ export interface AggregateApi {
   lastTestAt: number | null;
   lastTestStatus: string | null;
   lastTestError: string | null;
+  lastProbeAt: number | null;
+  lastProbeStatus: string | null;
+  lastProbeError: string | null;
+  lastProbeLatencyMs: number | null;
+  lastProbeHttpStatus: number | null;
 }
 
 export interface AggregateApiCreateResult {
@@ -243,6 +249,7 @@ export interface ModelOption {
 export interface RequestLog {
   id: string;
   traceId: string;
+  source: string;
   keyId: string;
   accountId: string;
   initialAccountId: string;
@@ -315,6 +322,10 @@ export interface RequestLogFilterSummary {
   errorCount: number;
   totalTokens: number;
   totalCostUsd: number;
+  sourceBreakdown: {
+    source: string;
+    count: number;
+  }[];
 }
 
 export interface LoginStatusResult {
@@ -381,6 +392,8 @@ export interface BackgroundTaskSettings {
   usagePollIntervalSecs: number;
   gatewayKeepaliveEnabled: boolean;
   gatewayKeepaliveIntervalSecs: number;
+  aggregateApiProbeEnabled: boolean;
+  aggregateApiProbeIntervalSecs: number;
   tokenRefreshPollingEnabled: boolean;
   tokenRefreshPollIntervalSecs: number;
   usageRefreshWorkers: number;

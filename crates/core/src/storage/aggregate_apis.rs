@@ -1,4 +1,4 @@
-use rusqlite::{Result, Row};
+use rusqlite::{params, Result, Row};
 
 use super::{now_ts, AggregateApi, Storage};
 
@@ -10,13 +10,19 @@ const AGGREGATE_API_SELECT_SQL: &str = "SELECT
     url,
     auth_type,
     auth_params_json,
+    models_json,
     action,
     status,
     created_at,
     updated_at,
     last_test_at,
     last_test_status,
-    last_test_error
+    last_test_error,
+    last_probe_at,
+    last_probe_status,
+    last_probe_error,
+    last_probe_latency_ms,
+    last_probe_http_status
  FROM aggregate_apis";
 
 impl Storage {
@@ -42,15 +48,21 @@ impl Storage {
                 url,
                 auth_type,
                 auth_params_json,
+                models_json,
                 action,
                 status,
                 created_at,
                 updated_at,
                 last_test_at,
                 last_test_status,
-                last_test_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            (
+                last_test_error,
+                last_probe_at,
+                last_probe_status,
+                last_probe_error,
+                last_probe_latency_ms,
+                last_probe_http_status
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![
                 &api.id,
                 &api.provider_type,
                 &api.supplier_name,
@@ -58,6 +70,7 @@ impl Storage {
                 &api.url,
                 &api.auth_type,
                 &api.auth_params_json,
+                &api.models_json,
                 &api.action,
                 &api.status,
                 api.created_at,
@@ -65,7 +78,12 @@ impl Storage {
                 &api.last_test_at,
                 &api.last_test_status,
                 &api.last_test_error,
-            ),
+                &api.last_probe_at,
+                &api.last_probe_status,
+                &api.last_probe_error,
+                &api.last_probe_latency_ms,
+                &api.last_probe_http_status,
+            ],
         )?;
         Ok(())
     }
@@ -227,6 +245,18 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_models_json(
+        &self,
+        api_id: &str,
+        models_json: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE aggregate_apis SET models_json = ?1, updated_at = ?2 WHERE id = ?3",
+            (models_json, now_ts(), api_id),
+        )?;
+        Ok(())
+    }
+
     pub fn update_aggregate_api_action(&self, api_id: &str, action: Option<&str>) -> Result<()> {
         self.conn.execute(
             "UPDATE aggregate_apis SET action = ?1, updated_at = ?2 WHERE id = ?3",
@@ -360,6 +390,41 @@ impl Storage {
         Ok(())
     }
 
+    pub fn update_aggregate_api_probe_result(
+        &self,
+        api_id: &str,
+        ok: bool,
+        status_code: Option<i64>,
+        latency_ms: Option<i64>,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let now = now_ts();
+        let last_probe_status = if ok { Some("success") } else { Some("failed") };
+        self.conn.execute(
+            "UPDATE aggregate_apis
+             SET last_probe_at = ?1,
+                 last_probe_status = ?2,
+                 last_probe_error = ?3,
+                 last_probe_latency_ms = ?4,
+                 last_probe_http_status = ?5,
+                 updated_at = ?1
+             WHERE id = ?6",
+            (now, last_probe_status, error, latency_ms, status_code, api_id),
+        )?;
+        if let Some(code) = status_code {
+            if !ok && error.is_none() {
+                let message = format!("http_status={code}");
+                self.conn.execute(
+                    "UPDATE aggregate_apis
+                     SET last_probe_error = ?1, last_probe_http_status = ?2
+                     WHERE id = ?3",
+                    (message, code, api_id),
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     /// 函数 `ensure_aggregate_apis_table`
     ///
     /// 作者: gaohongshun
@@ -381,13 +446,19 @@ impl Storage {
                 url TEXT NOT NULL,
                 auth_type TEXT NOT NULL DEFAULT 'apikey',
                 auth_params_json TEXT,
+                models_json TEXT,
                 action TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 last_test_at INTEGER,
                 last_test_status TEXT,
-                last_test_error TEXT
+                last_test_error TEXT,
+                last_probe_at INTEGER,
+                last_probe_status TEXT,
+                last_probe_error TEXT,
+                last_probe_latency_ms INTEGER,
+                last_probe_http_status INTEGER
             )",
             [],
         )?;
@@ -404,7 +475,13 @@ impl Storage {
             "TEXT NOT NULL DEFAULT 'apikey'",
         )?;
         self.ensure_column("aggregate_apis", "auth_params_json", "TEXT")?;
+        self.ensure_column("aggregate_apis", "models_json", "TEXT")?;
         self.ensure_column("aggregate_apis", "action", "TEXT")?;
+        self.ensure_column("aggregate_apis", "last_probe_at", "INTEGER")?;
+        self.ensure_column("aggregate_apis", "last_probe_status", "TEXT")?;
+        self.ensure_column("aggregate_apis", "last_probe_error", "TEXT")?;
+        self.ensure_column("aggregate_apis", "last_probe_latency_ms", "INTEGER")?;
+        self.ensure_column("aggregate_apis", "last_probe_http_status", "INTEGER")?;
         self.conn.execute(
             "UPDATE aggregate_apis
              SET provider_type = COALESCE(NULLIF(TRIM(provider_type), ''), 'codex')
@@ -481,12 +558,18 @@ fn map_aggregate_api_row(row: &Row<'_>) -> Result<AggregateApi> {
         url: row.get(4)?,
         auth_type: row.get(5)?,
         auth_params_json: row.get(6)?,
-        action: row.get(7)?,
-        status: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        last_test_at: row.get(11)?,
-        last_test_status: row.get(12)?,
-        last_test_error: row.get(13)?,
+        models_json: row.get(7)?,
+        action: row.get(8)?,
+        status: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        last_test_at: row.get(12)?,
+        last_test_status: row.get(13)?,
+        last_test_error: row.get(14)?,
+        last_probe_at: row.get(15)?,
+        last_probe_status: row.get(16)?,
+        last_probe_error: row.get(17)?,
+        last_probe_latency_ms: row.get(18)?,
+        last_probe_http_status: row.get(19)?,
     })
 }

@@ -1,21 +1,27 @@
 use serde::Serialize;
 use std::sync::atomic::Ordering;
+use std::thread;
 
 use super::{
+    AGGREGATE_API_PROBE_ENABLED, AGGREGATE_API_PROBE_INTERVAL_SECS,
     parse_interval_secs, BACKGROUND_TASKS_CONFIG_LOADED, BACKGROUND_TASK_RESTART_REQUIRED_KEYS,
-    DEFAULT_GATEWAY_KEEPALIVE_INTERVAL_SECS, DEFAULT_HTTP_STREAM_WORKER_FACTOR,
-    DEFAULT_HTTP_STREAM_WORKER_MIN, DEFAULT_HTTP_WORKER_FACTOR, DEFAULT_HTTP_WORKER_MIN,
+    DEFAULT_AGGREGATE_API_PROBE_INTERVAL_SECS, DEFAULT_GATEWAY_KEEPALIVE_INTERVAL_SECS,
+    DEFAULT_HTTP_STREAM_WORKER_FACTOR, DEFAULT_HTTP_STREAM_WORKER_MIN,
+    DEFAULT_HTTP_WORKER_FACTOR, DEFAULT_HTTP_WORKER_MIN,
     DEFAULT_TOKEN_REFRESH_POLL_INTERVAL_SECS, DEFAULT_USAGE_POLL_INTERVAL_SECS,
-    DEFAULT_USAGE_REFRESH_WORKERS, ENV_DISABLE_POLLING, ENV_GATEWAY_KEEPALIVE_ENABLED,
-    ENV_GATEWAY_KEEPALIVE_INTERVAL_SECS, ENV_HTTP_STREAM_WORKER_FACTOR, ENV_HTTP_STREAM_WORKER_MIN,
-    ENV_HTTP_WORKER_FACTOR, ENV_HTTP_WORKER_MIN, ENV_TOKEN_REFRESH_POLLING_ENABLED,
-    ENV_TOKEN_REFRESH_POLL_INTERVAL_SECS, ENV_USAGE_POLLING_ENABLED, ENV_USAGE_POLL_INTERVAL_SECS,
-    GATEWAY_KEEPALIVE_ENABLED, GATEWAY_KEEPALIVE_INTERVAL_SECS, HTTP_STREAM_WORKER_FACTOR,
-    HTTP_STREAM_WORKER_MIN, HTTP_WORKER_FACTOR, HTTP_WORKER_MIN,
-    MIN_GATEWAY_KEEPALIVE_INTERVAL_SECS, MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS,
-    MIN_USAGE_POLL_INTERVAL_SECS, TOKEN_REFRESH_POLLING_ENABLED,
-    TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC, USAGE_POLLING_ENABLED, USAGE_POLL_INTERVAL_SECS,
-    USAGE_REFRESH_WORKERS, USAGE_REFRESH_WORKERS_ENV,
+    DEFAULT_USAGE_REFRESH_WORKERS, ENV_AGGREGATE_API_PROBE_ENABLED,
+    ENV_AGGREGATE_API_PROBE_INTERVAL_SECS, ENV_DISABLE_POLLING,
+    ENV_GATEWAY_KEEPALIVE_ENABLED, ENV_GATEWAY_KEEPALIVE_INTERVAL_SECS,
+    ENV_HTTP_STREAM_WORKER_FACTOR, ENV_HTTP_STREAM_WORKER_MIN, ENV_HTTP_WORKER_FACTOR,
+    ENV_HTTP_WORKER_MIN, ENV_TOKEN_REFRESH_POLLING_ENABLED,
+    ENV_TOKEN_REFRESH_POLL_INTERVAL_SECS, ENV_USAGE_POLLING_ENABLED,
+    ENV_USAGE_POLL_INTERVAL_SECS, GATEWAY_KEEPALIVE_ENABLED, GATEWAY_KEEPALIVE_INTERVAL_SECS,
+    HTTP_STREAM_WORKER_FACTOR, HTTP_STREAM_WORKER_MIN, HTTP_WORKER_FACTOR, HTTP_WORKER_MIN,
+    MIN_AGGREGATE_API_PROBE_INTERVAL_SECS, MIN_GATEWAY_KEEPALIVE_INTERVAL_SECS,
+    MIN_TOKEN_REFRESH_POLL_INTERVAL_SECS, MIN_USAGE_POLL_INTERVAL_SECS,
+    TOKEN_REFRESH_POLLING_ENABLED, TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC,
+    USAGE_POLLING_ENABLED, USAGE_POLL_INTERVAL_SECS, USAGE_REFRESH_WORKERS,
+    USAGE_REFRESH_WORKERS_ENV,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -25,6 +31,8 @@ pub(crate) struct BackgroundTasksSettings {
     usage_poll_interval_secs: u64,
     gateway_keepalive_enabled: bool,
     gateway_keepalive_interval_secs: u64,
+    aggregate_api_probe_enabled: bool,
+    aggregate_api_probe_interval_secs: u64,
     token_refresh_polling_enabled: bool,
     token_refresh_poll_interval_secs: u64,
     usage_refresh_workers: usize,
@@ -41,6 +49,8 @@ pub(crate) struct BackgroundTasksSettingsPatch {
     pub usage_poll_interval_secs: Option<u64>,
     pub gateway_keepalive_enabled: Option<bool>,
     pub gateway_keepalive_interval_secs: Option<u64>,
+    pub aggregate_api_probe_enabled: Option<bool>,
+    pub aggregate_api_probe_interval_secs: Option<u64>,
     pub token_refresh_polling_enabled: Option<bool>,
     pub token_refresh_poll_interval_secs: Option<u64>,
     pub usage_refresh_workers: Option<usize>,
@@ -68,6 +78,9 @@ pub(crate) fn background_tasks_settings() -> BackgroundTasksSettings {
         usage_poll_interval_secs: USAGE_POLL_INTERVAL_SECS.load(Ordering::Relaxed),
         gateway_keepalive_enabled: GATEWAY_KEEPALIVE_ENABLED.load(Ordering::Relaxed),
         gateway_keepalive_interval_secs: GATEWAY_KEEPALIVE_INTERVAL_SECS.load(Ordering::Relaxed),
+        aggregate_api_probe_enabled: AGGREGATE_API_PROBE_ENABLED.load(Ordering::Relaxed),
+        aggregate_api_probe_interval_secs: AGGREGATE_API_PROBE_INTERVAL_SECS
+            .load(Ordering::Relaxed),
         token_refresh_polling_enabled: TOKEN_REFRESH_POLLING_ENABLED.load(Ordering::Relaxed),
         token_refresh_poll_interval_secs: TOKEN_REFRESH_POLL_INTERVAL_SECS_ATOMIC
             .load(Ordering::Relaxed),
@@ -121,6 +134,28 @@ pub(crate) fn set_background_tasks_settings(
         let normalized = secs.max(MIN_GATEWAY_KEEPALIVE_INTERVAL_SECS);
         GATEWAY_KEEPALIVE_INTERVAL_SECS.store(normalized, Ordering::Relaxed);
         std::env::set_var(ENV_GATEWAY_KEEPALIVE_INTERVAL_SECS, normalized.to_string());
+    }
+    if let Some(enabled) = patch.aggregate_api_probe_enabled {
+        let was_enabled = AGGREGATE_API_PROBE_ENABLED.load(Ordering::Relaxed);
+        AGGREGATE_API_PROBE_ENABLED.store(enabled, Ordering::Relaxed);
+        std::env::set_var(
+            ENV_AGGREGATE_API_PROBE_ENABLED,
+            if enabled { "1" } else { "0" },
+        );
+        if enabled && !was_enabled {
+            let _ = thread::Builder::new()
+                .name("aggregate-api-probe-on-enable".to_string())
+                .spawn(|| {
+                    if let Err(err) = super::run_aggregate_api_probe_once() {
+                        log::warn!("aggregate api probe on enable failed: {}", err);
+                    }
+                });
+        }
+    }
+    if let Some(secs) = patch.aggregate_api_probe_interval_secs {
+        let normalized = secs.max(MIN_AGGREGATE_API_PROBE_INTERVAL_SECS);
+        AGGREGATE_API_PROBE_INTERVAL_SECS.store(normalized, Ordering::Relaxed);
+        std::env::set_var(ENV_AGGREGATE_API_PROBE_INTERVAL_SECS, normalized.to_string());
     }
     if let Some(enabled) = patch.token_refresh_polling_enabled {
         TOKEN_REFRESH_POLLING_ENABLED.store(enabled, Ordering::Relaxed);
@@ -229,6 +264,20 @@ fn reload_background_tasks_from_env() {
                 .as_deref(),
             DEFAULT_GATEWAY_KEEPALIVE_INTERVAL_SECS,
             MIN_GATEWAY_KEEPALIVE_INTERVAL_SECS,
+        ),
+        Ordering::Relaxed,
+    );
+    AGGREGATE_API_PROBE_ENABLED.store(
+        env_bool_or(ENV_AGGREGATE_API_PROBE_ENABLED, false),
+        Ordering::Relaxed,
+    );
+    AGGREGATE_API_PROBE_INTERVAL_SECS.store(
+        parse_interval_secs(
+            std::env::var(ENV_AGGREGATE_API_PROBE_INTERVAL_SECS)
+                .ok()
+                .as_deref(),
+            DEFAULT_AGGREGATE_API_PROBE_INTERVAL_SECS,
+            MIN_AGGREGATE_API_PROBE_INTERVAL_SECS,
         ),
         Ordering::Relaxed,
     );

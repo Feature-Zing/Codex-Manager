@@ -11,7 +11,7 @@
 /// 返回函数执行结果
 pub(crate) fn run_gateway_keepalive_once() -> Result<(), String> {
     // 中文注释：定期探活 models 路径可预热上游连接与 token exchange，减少服务空闲后首个请求的冷启动失败概率。
-    let _ = crate::gateway::fetch_models_for_picker()?;
+    let _ = crate::gateway::fetch_models_for_picker_with_source("gateway_keepalive")?;
     Ok(())
 }
 

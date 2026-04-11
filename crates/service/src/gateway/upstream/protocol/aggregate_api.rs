@@ -346,6 +346,39 @@ fn normalize_candidate_order(mut candidates: Vec<AggregateApi>) -> Vec<Aggregate
     candidates
 }
 
+fn apply_probe_priority_to_aggregate_candidates(candidates: &mut [AggregateApi]) {
+    if !crate::usage::refresh::aggregate_api_probe_enabled() || candidates.len() <= 1 {
+        return;
+    }
+
+    let freshness_window = crate::usage::refresh::aggregate_api_probe_freshness_window_secs();
+    let now = codexmanager_core::storage::now_ts();
+
+    candidates.sort_by(|left, right| {
+        probe_sort_key(left, now, freshness_window)
+            .cmp(&probe_sort_key(right, now, freshness_window))
+    });
+}
+
+fn probe_sort_key(api: &AggregateApi, now_ts: i64, freshness_window_secs: i64) -> (u8, i64, i64, i64, i64, String) {
+    let is_success = matches!(api.last_probe_status.as_deref(), Some("success"));
+    let age_secs = api
+        .last_probe_at
+        .map(|ts| now_ts.saturating_sub(ts).max(0))
+        .unwrap_or(i64::MAX);
+    let is_fresh = is_success && age_secs <= freshness_window_secs;
+    let latency = api.last_probe_latency_ms.unwrap_or(i64::MAX);
+
+    (
+        if is_fresh { 0 } else if is_success { 1 } else { 2 },
+        age_secs,
+        latency,
+        api.sort,
+        -api.created_at,
+        api.id.clone(),
+    )
+}
+
 /// 函数 `apply_gateway_route_strategy_to_aggregate_candidates`
 ///
 /// 作者: gaohongshun
@@ -630,6 +663,7 @@ pub(crate) fn resolve_aggregate_api_rotation_candidates(
         })
         .collect::<Vec<_>>();
     candidates = normalize_candidate_order(candidates);
+    apply_probe_priority_to_aggregate_candidates(&mut candidates);
 
     if let Some(api_id) = aggregate_api_id
         .map(str::trim)
@@ -1093,6 +1127,7 @@ mod bridge_tests {
             url: format!("https://{id}.example.com"),
             auth_type: AGGREGATE_API_AUTH_APIKEY.to_string(),
             auth_params_json: None,
+            models_json: None,
             action: None,
             status: "active".to_string(),
             created_at: sort,
@@ -1100,6 +1135,11 @@ mod bridge_tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            last_probe_at: None,
+            last_probe_status: None,
+            last_probe_error: None,
+            last_probe_latency_ms: None,
+            last_probe_http_status: None,
         }
     }
 
@@ -1246,6 +1286,49 @@ mod bridge_tests {
 
         let _ = std::fs::remove_file(db_path);
     }
+
+    #[test]
+    fn probe_priority_prefers_fresh_success_then_low_latency() {
+        let _guard = crate::test_env_guard();
+        let previous_enabled = std::env::var("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED").ok();
+        let previous_interval =
+            std::env::var("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS").ok();
+        std::env::set_var("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED", "1");
+        std::env::set_var("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS", "180");
+        crate::usage_refresh::reload_background_tasks_runtime_from_env();
+
+        let now = codexmanager_core::storage::now_ts();
+        let mut slow = candidate("agg-slow", 1);
+        slow.last_probe_at = Some(now - 10);
+        slow.last_probe_status = Some("success".to_string());
+        slow.last_probe_latency_ms = Some(900);
+
+        let mut fast = candidate("agg-fast", 2);
+        fast.last_probe_at = Some(now - 10);
+        fast.last_probe_status = Some("success".to_string());
+        fast.last_probe_latency_ms = Some(120);
+
+        let mut failed = candidate("agg-failed", 0);
+        failed.last_probe_at = Some(now - 5);
+        failed.last_probe_status = Some("failed".to_string());
+        failed.last_probe_latency_ms = Some(50);
+
+        let mut candidates = vec![failed, slow, fast];
+        apply_probe_priority_to_aggregate_candidates(&mut candidates);
+        assert_eq!(ids(&candidates), vec!["agg-fast", "agg-slow", "agg-failed"]);
+
+        if let Some(value) = previous_enabled {
+            std::env::set_var("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_AGGREGATE_API_PROBE_ENABLED");
+        }
+        if let Some(value) = previous_interval {
+            std::env::set_var("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS", value);
+        } else {
+            std::env::remove_var("CODEXMANAGER_AGGREGATE_API_PROBE_INTERVAL_SECS");
+        }
+        crate::usage_refresh::reload_background_tasks_runtime_from_env();
+    }
 }
 
 #[cfg(test)]
@@ -1264,6 +1347,7 @@ mod tests {
             url: "https://open.bigmodel.cn/api/anthropic".to_string(),
             auth_type: "apikey".to_string(),
             auth_params_json: None,
+            models_json: None,
             action: action.map(str::to_string),
             status: "active".to_string(),
             created_at: 0,
@@ -1271,6 +1355,11 @@ mod tests {
             last_test_at: None,
             last_test_status: None,
             last_test_error: None,
+            last_probe_at: None,
+            last_probe_status: None,
+            last_probe_error: None,
+            last_probe_latency_ms: None,
+            last_probe_http_status: None,
         }
     }
 

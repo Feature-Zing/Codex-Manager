@@ -115,6 +115,7 @@ interface AggregateApiPayload {
   authParams?: Record<string, unknown> | null;
   actionCustomEnabled?: boolean | null;
   action?: string | null;
+  models?: ModelOption[] | null;
   username?: string | null;
   password?: string | null;
 }
@@ -485,6 +486,7 @@ export const accountClient = {
             ? params.actionCustomEnabled
             : null,
         action: params.action || null,
+        models: Array.isArray(params.models) ? params.models : null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -513,6 +515,7 @@ export const accountClient = {
             ? params.actionCustomEnabled
             : null,
         action: params.action || null,
+        models: Array.isArray(params.models) ? params.models : null,
         username: params.username || null,
         password: params.password || null,
       })
@@ -532,6 +535,32 @@ export const accountClient = {
       withAddr({ id: apiId })
     );
     return normalizeAggregateApiTestResult(result);
+  },
+  async listAggregateApiModels(apiId: string): Promise<ModelOption[]> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_list_models",
+      withAddr({ id: apiId })
+    );
+    return normalizeModelOptions(result);
+  },
+  async listAggregateApiModelsDraft(params: AggregateApiPayload): Promise<ModelOption[]> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_list_models_draft",
+      withAddr({
+        providerType: params.providerType || null,
+        url: params.url || null,
+        key: params.key || null,
+        authType: params.authType || null,
+        authCustomEnabled:
+          typeof params.authCustomEnabled === "boolean"
+            ? params.authCustomEnabled
+            : null,
+        authParams: params.authParams || null,
+        username: params.username || null,
+        password: params.password || null,
+      })
+    );
+    return normalizeModelOptions(result);
   },
 
   async listApiKeys(): Promise<ApiKey[]> {

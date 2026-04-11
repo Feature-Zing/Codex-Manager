@@ -460,7 +460,7 @@ fn gateway_claude_protocol_end_to_end_uses_codex_headers() {
     let mut matched = None;
     for _ in 0..40 {
         let logs = storage
-            .list_request_logs(Some("key:=gk_claude_e2e"), 20)
+            .list_request_logs(Some("key:=gk_claude_e2e"), None, 20)
             .expect("list request logs");
         matched = logs
             .into_iter()

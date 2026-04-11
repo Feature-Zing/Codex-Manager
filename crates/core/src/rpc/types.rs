@@ -411,6 +411,8 @@ pub struct AggregateApiSummary {
     pub url: String,
     pub auth_type: String,
     pub auth_params: Option<serde_json::Value>,
+    #[serde(default)]
+    pub models: Vec<ModelOption>,
     pub action: Option<String>,
     pub status: String,
     pub created_at: i64,
@@ -418,6 +420,11 @@ pub struct AggregateApiSummary {
     pub last_test_at: Option<i64>,
     pub last_test_status: Option<String>,
     pub last_test_error: Option<String>,
+    pub last_probe_at: Option<i64>,
+    pub last_probe_status: Option<String>,
+    pub last_probe_error: Option<String>,
+    pub last_probe_latency_ms: Option<i64>,
+    pub last_probe_http_status: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -563,6 +570,7 @@ pub struct ApiKeyModelListResult {
 #[serde(rename_all = "camelCase")]
 pub struct RequestLogSummary {
     pub trace_id: Option<String>,
+    pub source: Option<String>,
     pub key_id: Option<String>,
     pub account_id: Option<String>,
     pub initial_account_id: Option<String>,
@@ -604,6 +612,7 @@ pub struct RequestLogListParams {
     pub page_size: i64,
     pub query: Option<String>,
     pub status_filter: Option<String>,
+    pub source_filter: Option<String>,
 }
 
 impl Default for RequestLogListParams {
@@ -624,6 +633,7 @@ impl Default for RequestLogListParams {
             page_size: 20,
             query: None,
             status_filter: None,
+            source_filter: None,
         }
     }
 }
@@ -650,6 +660,7 @@ impl RequestLogListParams {
             },
             query: self.query,
             status_filter: self.status_filter,
+            source_filter: self.source_filter,
         }
     }
 }
@@ -727,6 +738,13 @@ pub struct GatewayErrorLogListResult {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RequestLogSourceCountResult {
+    pub source: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RequestLogFilterSummaryResult {
     pub total_count: i64,
     pub filtered_count: i64,
@@ -734,6 +752,8 @@ pub struct RequestLogFilterSummaryResult {
     pub error_count: i64,
     pub total_tokens: i64,
     pub total_cost_usd: f64,
+    #[serde(default)]
+    pub source_breakdown: Vec<RequestLogSourceCountResult>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

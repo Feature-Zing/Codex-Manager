@@ -65,6 +65,13 @@ const WEB_COMMAND_MAP: Record<string, WebCommandDescriptor> = {
   service_aggregate_api_test_connection: {
     rpcMethod: "aggregateApi/testConnection",
   },
+  service_aggregate_api_list_models: {
+    rpcMethod: "aggregateApi/listModels",
+  },
+  service_aggregate_api_list_models_draft: {
+    direct: (params, options) =>
+      postWebJson("/api/aggregate-api/list-models-draft", params, options),
+  },
   service_login_start: {
     rpcMethod: "account/login/start",
     mapParams: (params) => ({
@@ -442,6 +449,33 @@ async function invokeWebRpc<T>(
     descriptor.mapParams ? descriptor.mapParams(params) : params ?? {},
     options
   );
+}
+
+async function postWebJson<T>(
+  url: string,
+  params?: InvokeParams,
+  options: RequestOptions = {}
+): Promise<T> {
+  const response = await fetchWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(params ?? {}),
+    },
+    options
+  );
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(getAppErrorMessage(payload, `请求失败（HTTP ${response.status}）`));
+  }
+
+  throwIfBusinessError(payload);
+  return payload as T;
 }
 
 /**

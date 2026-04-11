@@ -34,9 +34,11 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "requestlog/summary" => {
             let query = super::string_param(req, "query");
             let status_filter = super::string_param(req, "statusFilter");
+            let source_filter = super::string_param(req, "sourceFilter");
             super::value_or_error(requestlog_summary::read_request_log_filter_summary(
                 query,
                 status_filter,
+                source_filter,
             ))
         }
         "requestlog/clear" => super::ok_or_error(requestlog_clear::clear_request_logs()),

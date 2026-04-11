@@ -522,6 +522,10 @@ async fn async_main() {
 
     let mut protected_app = Router::new()
         .route("/api/rpc", post(service_gateway::rpc_proxy))
+        .route(
+            "/api/aggregate-api/list-models-draft",
+            post(service_gateway::aggregate_api_list_models_draft),
+        )
         .route("/__quit", get(service_gateway::quit));
 
     let disk_ok = ensure_index_file(&index);
