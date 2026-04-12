@@ -598,6 +598,7 @@ export default function AggregateApiPage() {
                   <TableHead className="max-w-[220px]">{t("供应商 / URL")}</TableHead>
                   <TableHead className="w-[84px] text-center">{t("类型")}</TableHead>
                   <TableHead className="w-[148px]">{t("密钥")}</TableHead>
+                  <TableHead className="w-[88px] text-center">{t("模型")}</TableHead>
                   <TableHead className="w-[64px] text-center">{t("顺序")}</TableHead>
                   <TableHead className="w-[130px]">{t("测试连通性")}</TableHead>
                   <TableHead className="w-[112px] text-right pr-4">{t("状态")}</TableHead>
@@ -620,6 +621,9 @@ export default function AggregateApiPage() {
                         <Skeleton className="h-4 w-28" />
                       </TableCell>
                       <TableCell>
+                        <Skeleton className="mx-auto h-6 w-10 rounded-full" />
+                      </TableCell>
+                      <TableCell>
                         <Skeleton className="mx-auto h-4 w-12" />
                       </TableCell>
                       <TableCell>
@@ -635,7 +639,7 @@ export default function AggregateApiPage() {
                   ))
                 ) : filteredAggregateApis.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-48 text-center">
+                    <TableCell colSpan={8} className="h-48 text-center">
                       <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         <ShieldCheck className="h-8 w-8 opacity-20" />
                         <p>
@@ -781,6 +785,20 @@ export default function AggregateApiPage() {
                               </Button>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Tooltip>
+                            <TooltipTrigger render={<div />} className="inline-flex">
+                              <Badge variant="secondary" className="mx-auto">
+                                {api.models.length}
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+                              {api.models.length > 0
+                                ? api.models.slice(0, 12).join("\n")
+                                : t("暂无模型")}
+                            </TooltipContent>
+                          </Tooltip>
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           {api.sort}

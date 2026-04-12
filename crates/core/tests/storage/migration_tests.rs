@@ -291,6 +291,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .has_column("conversation_bindings", "last_switch_reason")
         .expect("check conversation_bindings.last_switch_reason"));
     assert!(storage
+        .has_column("aggregate_apis", "models_json")
+        .expect("check aggregate_apis.models_json"));
+    assert!(storage
         .has_column("api_key_profiles", "service_tier")
         .expect("check api_key_profiles.service_tier"));
     assert!(!storage

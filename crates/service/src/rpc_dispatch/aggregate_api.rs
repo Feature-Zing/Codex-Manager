@@ -1,8 +1,10 @@
-use codexmanager_core::rpc::types::{AggregateApiListResult, JsonRpcRequest, JsonRpcResponse};
+use codexmanager_core::rpc::types::{
+    AggregateApiListResult, JsonRpcRequest, JsonRpcResponse,
+};
 
 use crate::{
-    create_aggregate_api, delete_aggregate_api, list_aggregate_apis, read_aggregate_api_secret,
-    test_aggregate_api_connection, update_aggregate_api,
+    create_aggregate_api, delete_aggregate_api, fetch_aggregate_api_models, list_aggregate_apis,
+    read_aggregate_api_secret, test_aggregate_api_connection, update_aggregate_api,
 };
 
 /// 函数 `api_id_param`
@@ -40,6 +42,11 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let provider_type = super::string_param(req, "providerType");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
+            let models = req
+                .params
+                .as_ref()
+                .and_then(|v| v.get("models"))
+                .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
             let url = super::string_param(req, "url");
             let key = super::string_param(req, "key");
             let auth_type = super::string_param(req, "authType");
@@ -59,6 +66,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 provider_type,
                 supplier_name,
                 sort,
+                models,
                 auth_type,
                 auth_custom_enabled,
                 auth_params,
@@ -73,6 +81,11 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
             let provider_type = super::string_param(req, "providerType");
             let supplier_name = super::string_param(req, "supplierName");
             let sort = super::i64_param(req, "sort");
+            let models = req
+                .params
+                .as_ref()
+                .and_then(|v| v.get("models"))
+                .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok());
             let status = super::string_param(req, "status");
             let url = super::string_param(req, "url");
             let key = super::string_param(req, "key");
@@ -94,6 +107,7 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 provider_type,
                 supplier_name,
                 sort,
+                models,
                 status,
                 auth_type,
                 auth_custom_enabled,
@@ -115,6 +129,37 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
         "aggregateApi/testConnection" => {
             let api_id = api_id_param(req).unwrap_or("");
             super::value_or_error(test_aggregate_api_connection(api_id))
+        }
+        "aggregateApi/fetchModels" => {
+            let provider_type = super::string_param(req, "providerType");
+            let url = super::string_param(req, "url");
+            let key = super::string_param(req, "key");
+            let auth_type = super::string_param(req, "authType");
+            let auth_custom_enabled = super::bool_param(req, "authCustomEnabled");
+            let auth_params = req
+                .params
+                .as_ref()
+                .and_then(|v| v.get("authParams"))
+                .cloned();
+            let action_custom_enabled = super::bool_param(req, "actionCustomEnabled");
+            let action = super::string_param(req, "action");
+            let username = super::string_param(req, "username");
+            let password = super::string_param(req, "password");
+            let preview_only = super::bool_param(req, "previewOnly").unwrap_or(false);
+            super::value_or_error(fetch_aggregate_api_models(
+                api_id_param(req).map(str::to_string),
+                provider_type,
+                url,
+                key,
+                auth_type,
+                auth_custom_enabled,
+                auth_params,
+                action_custom_enabled,
+                action,
+                username,
+                password,
+                preview_only,
+            ))
         }
         _ => return None,
     };

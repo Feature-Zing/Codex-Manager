@@ -414,6 +414,8 @@ pub struct AggregateApiSummary {
     pub auth_type: String,
     pub auth_params: Option<serde_json::Value>,
     pub action: Option<String>,
+    #[serde(default)]
+    pub models: Vec<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -547,6 +549,14 @@ pub struct AggregateApiTestResult {
     pub message: Option<String>,
     pub tested_at: i64,
     pub latency_ms: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregateApiModelListResult {
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -1,10 +1,12 @@
 use codexmanager_core::rpc::types::{
-    AggregateApiCreateResult, AggregateApiSecretResult, AggregateApiSummary, AggregateApiTestResult,
+    AggregateApiCreateResult, AggregateApiModelListResult, AggregateApiSecretResult,
+    AggregateApiSummary, AggregateApiTestResult,
 };
 use codexmanager_core::storage::{now_ts, AggregateApi};
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::io::Read;
 use std::time::Instant;
 
@@ -242,11 +244,82 @@ fn normalize_action_override(
     }
 }
 
+fn normalize_model_slugs(items: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for item in items {
+        let slug = item.trim().to_string();
+        if slug.is_empty() {
+            continue;
+        }
+        if seen.insert(slug.clone()) {
+            out.push(slug);
+        }
+    }
+    out
+}
+
+fn parse_models_json(value: Option<&str>) -> Vec<String> {
+    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Vec::new();
+    };
+    match serde_json::from_str::<Vec<String>>(raw) {
+        Ok(items) => normalize_model_slugs(items),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn serialize_model_slugs(items: Vec<String>) -> Result<Option<String>, String> {
+    let normalized = normalize_model_slugs(items);
+    if normalized.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_string(&normalized)
+        .map(Some)
+        .map_err(|_| "invalid aggregate api models".to_string())
+}
+
+fn model_slug_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(raw) => {
+            let slug = raw.trim();
+            if slug.is_empty() {
+                None
+            } else {
+                Some(slug.to_string())
+            }
+        }
+        Value::Object(obj) => ["id", "slug", "name", "model"]
+            .iter()
+            .find_map(|key| obj.get(*key))
+            .and_then(model_slug_from_value),
+        _ => None,
+    }
+}
+
+fn parse_model_slugs_from_payload(payload: &Value) -> Vec<String> {
+    let items = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| payload.get("items").and_then(Value::as_array))
+        .or_else(|| payload.get("models").and_then(Value::as_array))
+        .or_else(|| payload.as_array());
+
+    let Some(items) = items else {
+        return Vec::new();
+    };
+
+    normalize_model_slugs(items.iter().filter_map(model_slug_from_value))
+}
+
 #[cfg(test)]
 mod tests {
     use codexmanager_core::storage::AggregateApi;
 
-    use super::{action_path_or_default, normalize_action_override};
+    use super::{
+        action_path_or_default, normalize_action_override, normalize_model_slugs,
+        parse_model_slugs_from_payload,
+    };
 
     fn aggregate_api_with_action(action: Option<&str>) -> AggregateApi {
         AggregateApi {
@@ -258,6 +331,7 @@ mod tests {
             auth_type: "apikey".to_string(),
             auth_params_json: None,
             action: action.map(str::to_string),
+            models_json: None,
             status: "active".to_string(),
             created_at: 0,
             updated_at: 0,
@@ -285,6 +359,36 @@ mod tests {
         let api = aggregate_api_with_action(Some(""));
         let path = action_path_or_default(&api, "/v1/messages?beta=true");
         assert_eq!(path, "/v1/messages?beta=true");
+    }
+
+    #[test]
+    fn normalize_model_slugs_deduplicates_and_trims() {
+        let items = normalize_model_slugs(vec![
+            " gpt-4o ".to_string(),
+            "".to_string(),
+            "gpt-4o".to_string(),
+            "claude-sonnet-4".to_string(),
+        ]);
+        assert_eq!(items, vec!["gpt-4o".to_string(), "claude-sonnet-4".to_string()]);
+    }
+
+    #[test]
+    fn parse_model_slugs_from_payload_supports_common_shapes() {
+        let payload = serde_json::json!({
+            "data": [
+                { "id": "gpt-4o" },
+                { "slug": "claude-sonnet-4" },
+                { "name": "gemini-2.5-pro" }
+            ]
+        });
+        assert_eq!(
+            parse_model_slugs_from_payload(&payload),
+            vec![
+                "gpt-4o".to_string(),
+                "claude-sonnet-4".to_string(),
+                "gemini-2.5-pro".to_string()
+            ]
+        );
     }
 }
 
@@ -497,6 +601,41 @@ fn normalize_probe_url(base_url: &str, suffix: &str) -> String {
     }
 }
 
+fn join_base_url(base_url: &str, suffix: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let path = suffix.trim().trim_start_matches('/');
+    if path.is_empty() {
+        return base.to_string();
+    }
+    format!("{base}/{path}")
+}
+
+fn push_unique_url(urls: &mut Vec<String>, url: String) {
+    if url.trim().is_empty() || urls.iter().any(|item| item == &url) {
+        return;
+    }
+    urls.push(url);
+}
+
+fn model_fetch_url_candidates(api: &AggregateApi) -> Vec<String> {
+    let mut urls = Vec::new();
+    let normalized_models = normalize_probe_url(api.url.as_str(), "/models");
+    push_unique_url(&mut urls, normalized_models.clone());
+    push_unique_url(&mut urls, join_base_url(api.url.as_str(), "models"));
+    push_unique_url(&mut urls, join_base_url(api.url.as_str(), "v1/models"));
+    if let Some(action) = api.action.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        let action_root = action.split('?').next().unwrap_or(action);
+        if let Some(prefix) = action_root.rsplit_once('/') {
+            let derived = format!("{}/models", prefix.0);
+            push_unique_url(
+                &mut urls,
+                normalize_probe_url(api.url.as_str(), derived.as_str()),
+            );
+        }
+    }
+    urls
+}
+
 /// 函数 `read_first_chunk`
 ///
 /// 作者: gaohongshun
@@ -623,6 +762,187 @@ fn add_codex_probe_headers(
         .header("user-agent", gateway::current_codex_user_agent())
         .header("originator", gateway::current_wire_originator())
         .header("accept-encoding", "identity"))
+}
+
+fn send_fetch_models_request(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+    url: &str,
+) -> Result<Value, String> {
+    let provider_type = normalize_provider_type_value(api.provider_type.as_str());
+    let request_url = if provider_type == AGGREGATE_API_PROVIDER_CODEX {
+        append_client_version_query(url)
+    } else {
+        url.to_string()
+    };
+    let builder = client.get(request_url.as_str());
+    let (builder, updated_url) = apply_probe_auth(builder, request_url.clone(), api, secret)?;
+    let builder = if updated_url != request_url {
+        let rebuilt = client.get(updated_url.as_str());
+        let (rebuilt, _) = apply_probe_auth(rebuilt, updated_url, api, secret)?;
+        rebuilt
+    } else {
+        builder
+    };
+    let response = add_codex_probe_headers(builder)?
+        .send()
+        .map_err(|err| err.to_string())?;
+    let status_code = response.status().as_u16() as i64;
+    let body = response.text().map_err(|err| err.to_string())?;
+    if !(200..300).contains(&status_code) {
+        let detail = body.trim();
+        return Err(if detail.is_empty() {
+            format!("fetch models http_status={status_code}")
+        } else {
+            let snippet = detail.chars().take(200).collect::<String>();
+            format!("fetch models http_status={status_code}: {snippet}")
+        });
+    }
+    serde_json::from_str::<Value>(&body).map_err(|_| "invalid models response json".to_string())
+}
+
+fn fetch_remote_model_slugs(
+    client: &reqwest::blocking::Client,
+    api: &AggregateApi,
+    secret: &str,
+) -> Result<Vec<String>, String> {
+    let mut errors = Vec::new();
+    for url in model_fetch_url_candidates(api) {
+        match send_fetch_models_request(client, api, secret, url.as_str()) {
+            Ok(payload) => {
+                let items = parse_model_slugs_from_payload(&payload);
+                if !items.is_empty() {
+                    return Ok(items);
+                }
+                errors.push("models response did not contain any valid model ids".to_string());
+            }
+            Err(err) => errors.push(err),
+        }
+    }
+    Err(errors.join("; "))
+}
+
+struct AggregateApiFetchTarget {
+    api_id: Option<String>,
+    api: AggregateApi,
+    secret: String,
+    persist: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_fetch_target(
+    api_id: Option<String>,
+    provider_type: Option<String>,
+    url: Option<String>,
+    key: Option<String>,
+    auth_type: Option<String>,
+    auth_custom_enabled: Option<bool>,
+    auth_params: Option<Value>,
+    action_custom_enabled: Option<bool>,
+    action: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    preview_only: bool,
+) -> Result<AggregateApiFetchTarget, String> {
+    let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+    let existing = if let Some(api_id) = api_id.as_deref().filter(|value| !value.trim().is_empty()) {
+        storage
+            .find_aggregate_api_by_id(api_id)
+            .map_err(|err| err.to_string())?
+    } else {
+        None
+    };
+    let existing_secret = if let Some(api_id) = api_id.as_deref().filter(|value| !value.trim().is_empty()) {
+        storage
+            .find_aggregate_api_secret_by_id(api_id)
+            .map_err(|err| err.to_string())?
+    } else {
+        None
+    };
+
+    let resolved_provider_type = normalize_provider_type(match provider_type {
+        Some(value) => Some(value),
+        None => existing.as_ref().map(|item| item.provider_type.clone()),
+    })?;
+    let resolved_url = normalize_upstream_base_url(match url {
+        Some(value) => Some(value),
+        None => existing.as_ref().map(|item| item.url.clone()),
+    })?
+    .unwrap_or_else(|| provider_default_url(resolved_provider_type.as_str()).to_string());
+    let resolved_auth_type = normalize_auth_type(match auth_type {
+        Some(value) => Some(value),
+        None => existing.as_ref().map(|item| item.auth_type.clone()),
+    })?;
+
+    let resolved_auth_params_json = if auth_custom_enabled.is_none() && auth_params.is_none() {
+        existing.as_ref().and_then(|item| item.auth_params_json.clone())
+    } else {
+        normalize_auth_params_json(
+            resolved_auth_type.as_str(),
+            auth_custom_enabled,
+            auth_params,
+        )?
+        .and_then(|value| if value.is_empty() { None } else { Some(value) })
+    };
+
+    let resolved_action = if action_custom_enabled.is_none() && action.is_none() {
+        existing.as_ref().and_then(|item| item.action.clone())
+    } else {
+        normalize_action_override(action_custom_enabled, action)?.unwrap_or(None)
+    };
+
+    let resolved_secret = if resolved_auth_type == AGGREGATE_API_AUTH_APIKEY {
+        normalize_secret(key)
+            .or(existing_secret.clone())
+            .ok_or_else(|| "key is required".to_string())?
+    } else {
+        let next_username = username.as_deref().map(str::trim).unwrap_or("");
+        let next_password = password.as_deref().map(str::trim).unwrap_or("");
+        if !next_username.is_empty() || !next_password.is_empty() {
+            if next_username.is_empty() || next_password.is_empty() {
+                return Err("username and password must be provided together".to_string());
+            }
+            serialize_userpass_secret(next_username, next_password)?
+        } else {
+            existing_secret.ok_or_else(|| "username and password are required".to_string())?
+        }
+    };
+
+    let api = AggregateApi {
+        id: existing
+            .as_ref()
+            .map(|item| item.id.clone())
+            .unwrap_or_else(|| "aggregate-api-preview".to_string()),
+        provider_type: resolved_provider_type,
+        supplier_name: existing.as_ref().and_then(|item| item.supplier_name.clone()),
+        sort: existing.as_ref().map(|item| item.sort).unwrap_or(0),
+        url: resolved_url,
+        auth_type: resolved_auth_type,
+        auth_params_json: resolved_auth_params_json,
+        action: resolved_action,
+        models_json: existing.as_ref().and_then(|item| item.models_json.clone()),
+        status: existing
+            .as_ref()
+            .map(|item| item.status.clone())
+            .unwrap_or_else(|| "active".to_string()),
+        created_at: existing.as_ref().map(|item| item.created_at).unwrap_or(0),
+        updated_at: existing.as_ref().map(|item| item.updated_at).unwrap_or(0),
+        last_test_at: existing.as_ref().and_then(|item| item.last_test_at),
+        last_test_status: existing
+            .as_ref()
+            .and_then(|item| item.last_test_status.clone()),
+        last_test_error: existing
+            .as_ref()
+            .and_then(|item| item.last_test_error.clone()),
+    };
+
+    Ok(AggregateApiFetchTarget {
+        api_id: existing.as_ref().map(|item| item.id.clone()),
+        api,
+        secret: resolved_secret,
+        persist: !preview_only,
+    })
 }
 
 /// 函数 `probe_codex_models_endpoint`
@@ -854,6 +1174,7 @@ pub(crate) fn list_aggregate_apis() -> Result<Vec<AggregateApiSummary>, String> 
                 .filter(|value| !value.is_empty())
                 .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok()),
             action: item.action,
+            models: parse_models_json(item.models_json.as_deref()),
             status: item.status,
             created_at: item.created_at,
             updated_at: item.updated_at,
@@ -881,6 +1202,7 @@ pub(crate) fn create_aggregate_api(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    models: Option<Vec<String>>,
     auth_type: Option<String>,
     auth_custom_enabled: Option<bool>,
     auth_params: Option<serde_json::Value>,
@@ -901,6 +1223,7 @@ pub(crate) fn create_aggregate_api(
         auth_custom_enabled,
         auth_params,
     )?;
+    let normalized_models_json = serialize_model_slugs(models.unwrap_or_default())?;
     let normalized_action =
         normalize_action_override(action_custom_enabled, action)?.unwrap_or(None);
     let normalized_secret = if normalized_auth_type == AGGREGATE_API_AUTH_APIKEY {
@@ -931,6 +1254,7 @@ pub(crate) fn create_aggregate_api(
             .map(|value| if value.is_empty() { None } else { Some(value) })
             .unwrap_or(None),
         action: normalized_action,
+        models_json: normalized_models_json,
         status: "active".to_string(),
         created_at,
         updated_at: created_at,
@@ -973,6 +1297,7 @@ pub(crate) fn update_aggregate_api(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    models: Option<Vec<String>>,
     status: Option<String>,
     auth_type: Option<String>,
     auth_custom_enabled: Option<bool>,
@@ -1064,6 +1389,13 @@ pub(crate) fn update_aggregate_api(
         }
     }
 
+    if let Some(models) = models {
+        let models_json = serialize_model_slugs(models)?;
+        storage
+            .update_aggregate_api_models_json(api_id, models_json.as_deref())
+            .map_err(|err| err.to_string())?;
+    }
+
     if next_auth_type == AGGREGATE_API_AUTH_APIKEY {
         let normalized_secret = normalize_secret(key);
         if auth_type_changed && normalized_secret.is_none() {
@@ -1096,6 +1428,52 @@ pub(crate) fn update_aggregate_api(
         }
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fetch_aggregate_api_models(
+    api_id: Option<String>,
+    provider_type: Option<String>,
+    url: Option<String>,
+    key: Option<String>,
+    auth_type: Option<String>,
+    auth_custom_enabled: Option<bool>,
+    auth_params: Option<Value>,
+    action_custom_enabled: Option<bool>,
+    action: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    preview_only: bool,
+) -> Result<AggregateApiModelListResult, String> {
+    let target = build_fetch_target(
+        api_id,
+        provider_type,
+        url,
+        key,
+        auth_type,
+        auth_custom_enabled,
+        auth_params,
+        action_custom_enabled,
+        action,
+        username,
+        password,
+        preview_only,
+    )?;
+    let client = gateway::fresh_upstream_client();
+    let items = fetch_remote_model_slugs(&client, &target.api, &target.secret)?;
+    if target.persist {
+        if let Some(api_id) = target.api_id.as_deref() {
+            let storage = open_storage().ok_or_else(|| "storage unavailable".to_string())?;
+            let models_json = serialize_model_slugs(items.clone())?;
+            storage
+                .update_aggregate_api_models_json(api_id, models_json.as_deref())
+                .map_err(|err| err.to_string())?;
+        }
+    }
+    Ok(AggregateApiModelListResult {
+        id: target.api_id.unwrap_or_else(|| target.api.id),
+        items,
+    })
 }
 
 /// 函数 `delete_aggregate_api`

@@ -229,6 +229,7 @@ pub struct AggregateApi {
     pub auth_type: String,
     pub auth_params_json: Option<String>,
     pub action: Option<String>,
+    pub models_json: Option<String>,
     pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
@@ -630,6 +631,7 @@ impl Storage {
             |s| s.ensure_request_log_request_type_and_service_tier_columns(),
         )?;
         self.apply_sql_or_compat_migration(
+        self.apply_sql_or_compat_migration(
             "047_model_catalog_models",
             include_str!("../../migrations/047_model_catalog_models.sql"),
             |s| s.ensure_model_catalog_models_table(),
@@ -641,6 +643,11 @@ impl Storage {
         self.apply_sql_migration(
             "049_model_catalog_string_items",
             include_str!("../../migrations/049_model_catalog_string_items.sql"),
+        )?;
+        self.apply_sql_or_compat_migration(
+            "050_aggregate_api_models_json",
+            include_str!("../../migrations/050_aggregate_api_models_json.sql"),
+            |s| s.ensure_aggregate_apis_table(),
         )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;

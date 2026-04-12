@@ -1,0 +1,1 @@
+ALTER TABLE request_logs ADD COLUMN final_upstream_attempt_duration_ms INTEGER;
