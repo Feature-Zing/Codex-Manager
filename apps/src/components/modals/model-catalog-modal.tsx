@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -446,19 +447,24 @@ export function ModelCatalogModal({
           </div>
         </div>
 
-        <DialogFooter className="border-t border-border/60 px-6 py-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t("取消")}
-          </Button>
-          <Button
-            onClick={() => {
-              void handleSave();
-            }}
-            disabled={isSaving}
-          >
-            {isSaving ? t("保存中...") : t("保存模型")}
-          </Button>
-        </DialogFooter>
+        <div className="border-t border-border/50 px-5 py-3">
+          <DialogFooter>
+            <DialogClose
+              className={buttonVariants({ variant: "ghost" })}
+              type="button"
+            >
+              {t("取消")}
+            </DialogClose>
+            <Button
+              onClick={() => {
+                void handleSave();
+              }}
+              disabled={isSaving}
+            >
+              {isSaving ? t("保存中...") : t("保存模型")}
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
