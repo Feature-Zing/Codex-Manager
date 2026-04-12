@@ -631,7 +631,6 @@ impl Storage {
             |s| s.ensure_request_log_request_type_and_service_tier_columns(),
         )?;
         self.apply_sql_or_compat_migration(
-        self.apply_sql_or_compat_migration(
             "047_model_catalog_models",
             include_str!("../../migrations/047_model_catalog_models.sql"),
             |s| s.ensure_model_catalog_models_table(),

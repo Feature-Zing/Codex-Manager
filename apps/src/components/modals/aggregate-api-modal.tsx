@@ -97,6 +97,7 @@ export function AggregateApiModal({
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [modelsExpanded, setModelsExpanded] = useState(false);
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
@@ -824,7 +825,7 @@ export function AggregateApiModal({
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {models.map((model, index) => (
+                    {(modelsExpanded ? models : models.slice(0, 3)).map((model, index) => (
                       <div key={index} className="flex items-center gap-2">
                         <Input
                           value={model}
@@ -853,6 +854,20 @@ export function AggregateApiModal({
                         </Button>
                       </div>
                     ))}
+                    {models.length > 3 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-muted-foreground hover:text-primary"
+                        onClick={() => setModelsExpanded(!modelsExpanded)}
+                      >
+                        {modelsExpanded
+                          ? t("收起 ({count} 个模型)", { count: models.length })
+                          : t("展开全部 ({count} 个模型)", { count: models.length })
+                        }
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
