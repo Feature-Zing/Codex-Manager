@@ -751,6 +751,7 @@ export function normalizeAggregateApi(item: unknown): AggregateApi | null {
       typeof source.action === "string"
         ? source.action
         : asString(source.action) || null,
+    models: asStringArray(source.models),
     status: asString(source.status) || "active",
     createdAt: toNullableNumber(source.createdAt ?? source.created_at),
     updatedAt: toNullableNumber(source.updatedAt ?? source.updated_at),
@@ -836,6 +837,11 @@ export function normalizeAggregateApiTestResult(payload: unknown): AggregateApiT
     testedAt: asInteger(source.testedAt ?? source.tested_at, 0, 0),
     latencyMs: asInteger(source.latencyMs ?? source.latency_ms, 0, 0),
   };
+}
+
+export function normalizeAggregateApiModelList(payload: unknown): string[] {
+  const source = asObject(payload);
+  return asStringArray(source.items ?? payload);
 }
 
 /**

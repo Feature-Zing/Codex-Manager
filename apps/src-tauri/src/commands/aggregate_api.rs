@@ -40,6 +40,7 @@ pub async fn service_aggregate_api_create(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    models: Option<Vec<String>>,
     url: Option<String>,
     key: Option<String>,
     auth_type: Option<String>,
@@ -54,6 +55,7 @@ pub async fn service_aggregate_api_create(
         "providerType": provider_type,
         "supplierName": supplier_name,
         "sort": sort,
+        "models": models,
         "url": url,
         "key": key,
         "authType": auth_type,
@@ -91,6 +93,7 @@ pub async fn service_aggregate_api_update(
     provider_type: Option<String>,
     supplier_name: Option<String>,
     sort: Option<i64>,
+    models: Option<Vec<String>>,
     status: Option<String>,
     url: Option<String>,
     key: Option<String>,
@@ -107,6 +110,7 @@ pub async fn service_aggregate_api_update(
         "providerType": provider_type,
         "supplierName": supplier_name,
         "sort": sort,
+        "models": models,
         "status": status,
         "url": url,
         "key": key,
@@ -182,4 +186,37 @@ pub async fn service_aggregate_api_test_connection(
 ) -> Result<serde_json::Value, String> {
     let params = serde_json::json!({ "id": id });
     rpc_call_in_background("aggregateApi/testConnection", addr, Some(params)).await
+}
+
+#[tauri::command]
+pub async fn service_aggregate_api_fetch_models(
+    addr: Option<String>,
+    id: Option<String>,
+    provider_type: Option<String>,
+    url: Option<String>,
+    key: Option<String>,
+    auth_type: Option<String>,
+    auth_custom_enabled: Option<bool>,
+    auth_params: Option<serde_json::Value>,
+    action_custom_enabled: Option<bool>,
+    action: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    preview_only: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "id": id,
+        "providerType": provider_type,
+        "url": url,
+        "key": key,
+        "authType": auth_type,
+        "authCustomEnabled": auth_custom_enabled,
+        "authParams": auth_params,
+        "actionCustomEnabled": action_custom_enabled,
+        "action": action,
+        "username": username,
+        "password": password,
+        "previewOnly": preview_only,
+    });
+    rpc_call_in_background("aggregateApi/fetchModels", addr, Some(params)).await
 }

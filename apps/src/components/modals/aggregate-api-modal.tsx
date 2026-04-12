@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clipboard, Database, ShieldCheck } from "lucide-react";
+import { Clipboard, Database, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -92,9 +92,11 @@ export function AggregateApiModal({
   const [password, setPassword] = useState("");
   const [actionCustomEnabled, setActionCustomEnabled] = useState(false);
   const [action, setAction] = useState("");
+  const [models, setModels] = useState<string[]>([]);
   const [key, setKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
@@ -154,11 +156,113 @@ export function AggregateApiModal({
     const nextAction = aggregateApi?.action ?? "";
     setAction(nextAction);
     setActionCustomEnabled(aggregateApi?.action !== null && aggregateApi?.action !== undefined);
+    setModels(Array.isArray(aggregateApi?.models) ? aggregateApi.models : []);
     setKey("");
     setUsername("");
     setPassword("");
     setGeneratedKey("");
   }, [aggregateApi, defaultSort, open]);
+
+  const normalizeModelInputs = (items: string[]) => {
+    const seen = new Set<string>();
+    return items.reduce<string[]>((result, item) => {
+      const slug = String(item || "").trim();
+      if (!slug || seen.has(slug)) {
+        return result;
+      }
+      seen.add(slug);
+      result.push(slug);
+      return result;
+    }, []);
+  };
+
+  const buildAuthParams = () => {
+    if (!authCustomEnabled) {
+      return null;
+    }
+    if (authType === "apikey") {
+      return {
+        location: apiKeyLocation,
+        name: apiKeyName.trim(),
+        headerValueFormat:
+          apiKeyLocation === "header" ? apiKeyHeaderValueFormat : undefined,
+      };
+    }
+    return {
+      mode: userpassMode,
+      usernameName:
+        userpassMode === "headerPair" || userpassMode === "queryPair"
+          ? userpassUsernameName.trim()
+          : undefined,
+      passwordName:
+        userpassMode === "headerPair" || userpassMode === "queryPair"
+          ? userpassPasswordName.trim()
+          : undefined,
+    };
+  };
+
+  const handleFetchModels = async () => {
+    if (!isServiceReady) {
+      toast.info(unavailableMessage);
+      return;
+    }
+    if (!url.trim()) {
+      toast.error(t("请输入聚合 API URL"));
+      return;
+    }
+    if (authType === "apikey" && !aggregateApi?.id && !key.trim()) {
+      toast.error(t("请输入聚合 API 密钥"));
+      return;
+    }
+    if (
+      authType === "userpass" &&
+      !aggregateApi?.id &&
+      (!username.trim() || !password.trim())
+    ) {
+      toast.error(t("请输入账号密码"));
+      return;
+    }
+    if (authCustomEnabled) {
+      if (authType === "apikey" && !apiKeyName.trim()) {
+        toast.error(t("请输入认证参数名称"));
+        return;
+      }
+      if (
+        authType === "userpass" &&
+        userpassMode !== "basic" &&
+        (!userpassUsernameName.trim() || !userpassPasswordName.trim())
+      ) {
+        toast.error(t("请输入账号密码参数名称"));
+        return;
+      }
+    }
+
+    setIsFetchingModels(true);
+    try {
+      const nextModels = await accountClient.fetchAggregateApiModels({
+        id: aggregateApi?.id || null,
+        providerType,
+        url,
+        key: authType === "apikey" ? key || null : null,
+        authType,
+        authCustomEnabled,
+        authParams: buildAuthParams(),
+        actionCustomEnabled,
+        action: actionCustomEnabled ? action.trim() : null,
+        username: authType === "userpass" ? username.trim() || null : null,
+        password: authType === "userpass" ? password.trim() || null : null,
+        previewOnly: true,
+      });
+      setModels(nextModels);
+      toast.success(t("模型列表已刷新"));
+    } catch (error: unknown) {
+      toast.error(
+        `${t("刷新模型失败")}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
 
   /**
    * 函数 `handleSave`
@@ -229,27 +333,8 @@ export function AggregateApiModal({
       }
     }
 
-    const authParams =
-      authCustomEnabled && authType === "apikey"
-        ? {
-            location: apiKeyLocation,
-            name: apiKeyName.trim(),
-            headerValueFormat:
-              apiKeyLocation === "header" ? apiKeyHeaderValueFormat : undefined,
-          }
-        : authCustomEnabled && authType === "userpass"
-          ? {
-              mode: userpassMode,
-              usernameName:
-                userpassMode === "headerPair" || userpassMode === "queryPair"
-                  ? userpassUsernameName.trim()
-                  : undefined,
-              passwordName:
-                userpassMode === "headerPair" || userpassMode === "queryPair"
-                  ? userpassPasswordName.trim()
-                  : undefined,
-            }
-          : null;
+    const authParams = buildAuthParams();
+    const normalizedModels = normalizeModelInputs(models);
     if (authCustomEnabled) {
       if (authType === "apikey") {
         if (!apiKeyName.trim()) {
@@ -270,6 +355,7 @@ export function AggregateApiModal({
           providerType,
           supplierName,
           sort: parsedSort,
+          models: normalizedModels,
           url,
           key: authType === "apikey" ? key || null : null,
           authType,
@@ -294,6 +380,7 @@ export function AggregateApiModal({
         providerType,
         supplierName,
         sort: parsedSort,
+        models: normalizedModels,
         url,
         key: authType === "apikey" ? key : null,
         authType,
@@ -689,6 +776,83 @@ export function AggregateApiModal({
                     </div>
                   ) : null}
                 </div>
+              </div>
+
+              <div className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-sm">{t("模型")}</Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("支持手动增删改；刷新模型会用当前表单配置重新获取。")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!isServiceReady || isFetchingModels}
+                      onClick={() => void handleFetchModels()}
+                    >
+                      <RefreshCw
+                        className={
+                          isFetchingModels
+                            ? "mr-1 h-3.5 w-3.5 animate-spin"
+                            : "mr-1 h-3.5 w-3.5"
+                        }
+                      />
+                      {t("刷新模型")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!isServiceReady}
+                      onClick={() => setModels((current) => [...current, ""])}
+                    >
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      {t("新增")}
+                    </Button>
+                  </div>
+                </div>
+
+                {models.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-sm text-muted-foreground">
+                    {t("暂无模型，可手动新增或点击刷新模型获取。")}
+                  </div>
+                ) : (
+                  <div className="grid gap-2">
+                    {models.map((model, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <Input
+                          value={model}
+                          disabled={!isServiceReady}
+                          placeholder={t("请输入模型")}
+                          onChange={(event) =>
+                            setModels((current) =>
+                              current.map((item, itemIndex) =>
+                                itemIndex === index ? event.target.value : item
+                              )
+                            )
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={!isServiceReady}
+                          onClick={() =>
+                            setModels((current) =>
+                              current.filter((_, itemIndex) => itemIndex !== index)
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {generatedKey ? (

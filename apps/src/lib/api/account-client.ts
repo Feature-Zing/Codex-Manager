@@ -2,6 +2,7 @@ import { invoke, withAddr } from "./transport";
 import {
   normalizeAccountList,
   normalizeAggregateApiCreateResult,
+  normalizeAggregateApiModelList,
   normalizeAggregateApiList,
   normalizeAggregateApiSecretResult,
   normalizeAggregateApiTestResult,
@@ -121,6 +122,7 @@ interface AggregateApiPayload {
   providerType?: string | null;
   supplierName?: string | null;
   sort?: number | null;
+  models?: string[] | null;
   status?: string | null;
   url?: string | null;
   key?: string | null;
@@ -486,6 +488,7 @@ export const accountClient = {
         providerType: params.providerType || null,
         supplierName: params.supplierName || null,
         sort: typeof params.sort === "number" ? params.sort : null,
+        models: Array.isArray(params.models) ? params.models : null,
         status: params.status || null,
         url: params.url || null,
         key: params.key || null,
@@ -514,6 +517,7 @@ export const accountClient = {
         providerType: params.providerType || null,
         supplierName: params.supplierName || null,
         sort: typeof params.sort === "number" ? params.sort : null,
+        models: Array.isArray(params.models) ? params.models : null,
         status: params.status || null,
         url: params.url || null,
         key: params.key || null,
@@ -547,6 +551,38 @@ export const accountClient = {
       withAddr({ id: apiId })
     );
     return normalizeAggregateApiTestResult(result);
+  },
+  async fetchAggregateApiModels(
+    params: AggregateApiPayload & {
+      id?: string | null;
+      previewOnly?: boolean | null;
+    }
+  ): Promise<string[]> {
+    const result = await invoke<unknown>(
+      "service_aggregate_api_fetch_models",
+      withAddr({
+        id: params.id || null,
+        providerType: params.providerType || null,
+        url: params.url || null,
+        key: params.key || null,
+        authType: params.authType || null,
+        authCustomEnabled:
+          typeof params.authCustomEnabled === "boolean"
+            ? params.authCustomEnabled
+            : null,
+        authParams: params.authParams || null,
+        actionCustomEnabled:
+          typeof params.actionCustomEnabled === "boolean"
+            ? params.actionCustomEnabled
+            : null,
+        action: params.action || null,
+        username: params.username || null,
+        password: params.password || null,
+        previewOnly:
+          typeof params.previewOnly === "boolean" ? params.previewOnly : true,
+      })
+    );
+    return normalizeAggregateApiModelList(result);
   },
 
   async listApiKeys(): Promise<ApiKey[]> {
