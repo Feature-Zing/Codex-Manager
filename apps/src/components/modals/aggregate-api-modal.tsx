@@ -471,7 +471,12 @@ export function AggregateApiModal({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+                    <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
+                    <span className="text-[11px] leading-4 text-muted-foreground">
+                      {t("值越小越靠前，用于聚合 API 轮转优先级")}
+                    </span>
+                  </div>
                   <Input
                     id="aggregate-api-sort"
                     type="number"
@@ -481,9 +486,6 @@ export function AggregateApiModal({
                     disabled={!isServiceReady}
                     onChange={(event) => setSortDraft(event.target.value)}
                   />
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    {t("值越小越靠前，用于聚合 API 轮转优先级")}
-                  </p>
                 </div>
 
                 <div className="grid gap-2">
