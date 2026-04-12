@@ -76,6 +76,27 @@ const EDITABLE_ADVANCED_KEYS = [
   "availableInPlans",
 ];
 
+const UNSET_SELECT_VALUE = "__unset__";
+
+const VISIBILITY_OPTIONS = [
+  { value: "list", label: "list" },
+  { value: "hidden", label: "hidden" },
+] as const;
+
+const REASONING_EFFORT_OPTIONS = [
+  { value: "low", label: "low" },
+  { value: "medium", label: "medium" },
+  { value: "high", label: "high" },
+  { value: "xhigh", label: "xhigh" },
+] as const;
+
+function normalizeOptionalSelectValue(value: string | null): string {
+  if (!value || value === UNSET_SELECT_VALUE) {
+    return "";
+  }
+  return value;
+}
+
 function toPrettyJson(value: unknown): string {
   if (
     !value ||
@@ -371,28 +392,49 @@ export function ModelCatalogModal({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="model-visibility">{t("可见性（可选）")}</Label>
-                <Input
-                  id="model-visibility"
-                  value={draft.visibility}
-                  onChange={(event) =>
-                    updateDraft("visibility", event.target.value)
+                <Label>{t("可见性")}</Label>
+                <Select
+                  value={draft.visibility.trim() || UNSET_SELECT_VALUE}
+                  onValueChange={(value) =>
+                    updateDraft("visibility", normalizeOptionalSelectValue(value))
                   }
-                  placeholder={t("留空表示未设置，例如 list")}
-                />
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("未设置")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_SELECT_VALUE}>{t("未设置")}</SelectItem>
+                    {VISIBILITY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="model-default-reasoning">
-                  {t("默认推理等级")}
-                </Label>
-                <Input
-                  id="model-default-reasoning"
-                  value={draft.defaultReasoningLevel}
-                  onChange={(event) =>
-                    updateDraft("defaultReasoningLevel", event.target.value)
+                <Label>{t("默认推理等级")}</Label>
+                <Select
+                  value={draft.defaultReasoningLevel.trim() || UNSET_SELECT_VALUE}
+                  onValueChange={(value) =>
+                    updateDraft(
+                      "defaultReasoningLevel",
+                      normalizeOptionalSelectValue(value),
+                    )
                   }
-                  placeholder="medium"
-                />
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("未设置")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET_SELECT_VALUE}>{t("未设置")}</SelectItem>
+                    {REASONING_EFFORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
