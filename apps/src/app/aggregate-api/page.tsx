@@ -33,6 +33,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -126,6 +131,9 @@ export default function AggregateApiPage() {
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
     {},
   );
+  const [expandedModelIds, setExpandedModelIds] = useState<Set<string>>(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const { data: aggregateApis = [], isLoading } = useQuery({
     queryKey: ["aggregate-apis"],
@@ -182,6 +190,23 @@ export default function AggregateApiPage() {
     }
     return aggregateApis.filter((api) => api.providerType === providerFilter);
   }, [aggregateApis, providerFilter]);
+
+  const totalPages = useMemo(
+    () => Math.ceil(filteredAggregateApis.length / pageSize),
+    [filteredAggregateApis.length, pageSize]
+  );
+
+  const paginatedAggregateApis = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return filteredAggregateApis.slice(startIndex, endIndex);
+  }, [filteredAggregateApis, currentPage, pageSize]);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const defaultCreateSort = useMemo(() => {
     const maxSort = aggregateApis.reduce(
@@ -574,18 +599,13 @@ export default function AggregateApiPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="text-xs text-muted-foreground">
-                  {t("共")} {filteredAggregateApis.length} {t("条")}
-                </div>
-                <Button
-                  className="h-10 gap-2 shadow-lg shadow-primary/20"
-                  onClick={openCreateModal}
-                  disabled={!isServiceReady}
-                >
-                  <Plus className="h-4 w-4" /> {t("新建聚合 API")}
-                </Button>
-              </div>
+              <Button
+                className="h-10 gap-2 shadow-lg shadow-primary/20"
+                onClick={openCreateModal}
+                disabled={!isServiceReady}
+              >
+                <Plus className="h-4 w-4" /> {t("新建聚合 API")}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -656,7 +676,7 @@ export default function AggregateApiPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredAggregateApis.map((api) => {
+                  paginatedAggregateApis.map((api) => {
                     const revealed = revealedSecrets[api.id];
                     const serverEnabled =
                       String(api.status || "")
@@ -787,18 +807,65 @@ export default function AggregateApiPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Tooltip>
-                            <TooltipTrigger render={<div />} className="inline-flex">
-                              <Badge variant="secondary" className="mx-auto">
+                          <Popover>
+                            <PopoverTrigger>
+                              <Badge
+                                variant="secondary"
+                                className="mx-auto cursor-pointer hover:bg-secondary/80"
+                              >
                                 {api.models.length}
                               </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
-                              {api.models.length > 0
-                                ? api.models.slice(0, 12).join("\n")
-                                : t("暂无模型")}
-                            </TooltipContent>
-                          </Tooltip>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80 max-h-96 overflow-y-auto">
+                              {api.models.length > 0 ? (
+                                <div className="space-y-2">
+                                  <div className="text-sm font-medium text-foreground">
+                                    {t("模型列表")} ({api.models.length})
+                                  </div>
+                                  <div className="space-y-1">
+                                    {(expandedModelIds.has(api.id)
+                                      ? api.models
+                                      : api.models.slice(0, 3)
+                                    ).map((model, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="rounded bg-muted/50 px-2 py-1 font-mono text-xs text-muted-foreground"
+                                      >
+                                        {model}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {api.models.length > 3 && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="w-full text-xs"
+                                      onClick={() => {
+                                        setExpandedModelIds((prev) => {
+                                          const next = new Set(prev);
+                                          if (next.has(api.id)) {
+                                            next.delete(api.id);
+                                          } else {
+                                            next.add(api.id);
+                                          }
+                                          return next;
+                                        });
+                                      }}
+                                    >
+                                      {expandedModelIds.has(api.id)
+                                        ? t("收起")
+                                        : t("展开全部 ({count} 个)", { count: api.models.length })
+                                      }
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-sm text-muted-foreground">
+                                  {t("暂无模型")}
+                                </div>
+                              )}
+                            </PopoverContent>
+                          </Popover>
                         </TableCell>
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">
                           {api.sort}
@@ -926,6 +993,60 @@ export default function AggregateApiPage() {
             </Table>
           </CardContent>
         </Card>
+
+        <div className="flex items-center justify-between px-2">
+          <div className="text-xs text-muted-foreground">
+            {t("共")} {filteredAggregateApis.length} {t("条")}
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                {t("每页显示")}
+              </span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => {
+                  setPageSize(Number(value));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[70px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["10", "20", "50", "100"].map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              >
+                {t("上一页")}
+              </Button>
+              <div className="min-w-[60px] text-center text-xs font-medium">
+                {t("第")} {currentPage} / {totalPages} {t("页")}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 text-xs"
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              >
+                {t("下一页")}
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <AggregateApiModal
