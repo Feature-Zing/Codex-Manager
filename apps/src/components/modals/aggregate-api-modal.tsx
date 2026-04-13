@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Clipboard, Database, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,12 +24,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { accountClient } from "@/lib/api/account-client";
 import { copyTextToClipboard } from "@/lib/utils/clipboard";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { AggregateApi } from "@/types";
+import {
+  classifyModel,
+  getCategoryInfo,
+  getCategoryStats,
+  MODEL_CATEGORY_INFO,
+  type ModelCategory,
+} from "@/lib/utils/model-classifier";
 
 const AGGREGATE_API_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -98,11 +106,21 @@ export function AggregateApiModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [modelsExpanded, setModelsExpanded] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<ModelCategory | "all">("all");
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
     ? t("服务未连接，聚合 API 暂不可编辑；连接恢复后可继续操作。")
     : t("当前运行环境暂不支持聚合 API 管理。");
+
+  const categoryStats = useMemo(() => {
+    return getCategoryStats(models.map((m) => ({ slug: m })));
+  }, [models]);
+
+  const filteredModels = useMemo(() => {
+    if (categoryFilter === "all") return models;
+    return models.filter((model) => classifyModel(model) === categoryFilter);
+  }, [models, categoryFilter]);
 
   useEffect(() => {
     if (!open) return;
@@ -819,42 +837,85 @@ export function AggregateApiModal({
                   </div>
                 </div>
 
+                {models.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{t("分类筛选")}:</span>
+                    <Badge
+                      variant={categoryFilter === "all" ? "default" : "outline"}
+                      className="cursor-pointer"
+                      onClick={() => setCategoryFilter("all")}
+                    >
+                      {t("全部")} ({models.length})
+                    </Badge>
+                    {(Object.keys(MODEL_CATEGORY_INFO) as ModelCategory[]).map((category) => {
+                      const count = categoryStats[category];
+                      if (count === 0) return null;
+                      const info = getCategoryInfo(category);
+                      return (
+                        <Badge
+                          key={category}
+                          variant={categoryFilter === category ? "default" : "outline"}
+                          className={`cursor-pointer ${categoryFilter === category ? "" : info.bgColor + " " + info.color + " border-transparent"}`}
+                          onClick={() => setCategoryFilter(category)}
+                        >
+                          {info.label} ({count})
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {models.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border/60 px-3 py-4 text-sm text-muted-foreground">
                     {t("暂无模型，可手动新增或点击刷新模型获取。")}
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {(modelsExpanded ? models : models.slice(0, 3)).map((model, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <Input
-                          value={model}
-                          disabled={!isServiceReady}
-                          placeholder={t("请输入模型")}
-                          onChange={(event) =>
-                            setModels((current) =>
-                              current.map((item, itemIndex) =>
-                                itemIndex === index ? event.target.value : item
+                    {(modelsExpanded ? filteredModels : filteredModels.slice(0, 3)).map((model) => {
+                      const originalIndex = models.indexOf(model);
+                      const category = classifyModel(model);
+                      const categoryInfo = getCategoryInfo(category);
+                      return (
+                        <div key={originalIndex} className="flex items-center gap-2">
+                          <div className="flex-1 flex items-center gap-2">
+                            <Input
+                              value={model}
+                              disabled={!isServiceReady}
+                              placeholder={t("请输入模型")}
+                              onChange={(event) =>
+                                setModels((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === originalIndex ? event.target.value : item
+                                  )
+                                )
+                              }
+                            />
+                            {model.trim() && (
+                              <Badge
+                                variant="outline"
+                                className={`${categoryInfo.bgColor} ${categoryInfo.color} border-transparent shrink-0`}
+                              >
+                                {categoryInfo.label}
+                              </Badge>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            disabled={!isServiceReady}
+                            onClick={() =>
+                              setModels((current) =>
+                                current.filter((_, itemIndex) => itemIndex !== originalIndex)
                               )
-                            )
-                          }
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          disabled={!isServiceReady}
-                          onClick={() =>
-                            setModels((current) =>
-                              current.filter((_, itemIndex) => itemIndex !== index)
-                            )
-                          }
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                    {models.length > 3 && (
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    {filteredModels.length > 3 && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -863,8 +924,8 @@ export function AggregateApiModal({
                         onClick={() => setModelsExpanded(!modelsExpanded)}
                       >
                         {modelsExpanded
-                          ? t("收起 ({count} 个模型)", { count: models.length })
-                          : t("展开全部 ({count} 个模型)", { count: models.length })
+                          ? t("收起 ({count} 个模型)", { count: filteredModels.length })
+                          : t("展开全部 ({count} 个模型)", { count: filteredModels.length })
                         }
                       </Button>
                     )}

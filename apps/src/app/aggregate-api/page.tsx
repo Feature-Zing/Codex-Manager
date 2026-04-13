@@ -66,6 +66,11 @@ import { usePageTransitionReady } from "@/hooks/usePageTransitionReady";
 import { useRuntimeCapabilities } from "@/hooks/useRuntimeCapabilities";
 import { useI18n } from "@/lib/i18n/provider";
 import { AggregateApi, AggregateApiSecretResult } from "@/types";
+import {
+  classifyModel,
+  getCategoryInfo,
+  getCategoryStats,
+} from "@/lib/utils/model-classifier";
 
 type TranslateFn = (key: string, values?: Record<string, string | number>) => string;
 
@@ -142,6 +147,9 @@ export default function AggregateApiPage() {
     {},
   );
   const [expandedModelIds, setExpandedModelIds] = useState<Set<string>>(new Set());
+  const [modelCategoryFilters, setModelCategoryFilters] = useState<Record<string, string>>(
+    {},
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -1074,45 +1082,112 @@ export default function AggregateApiPage() {
                             <PopoverContent className="w-80 max-h-96 overflow-y-auto">
                               {api.models.length > 0 ? (
                                 <div className="space-y-2">
-                                  <div className="text-sm font-medium text-foreground">
-                                    {t("模型列表")} ({api.models.length})
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-sm font-medium text-foreground">
+                                      {t("模型列表")} ({api.models.length})
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(() => {
+                                        const stats = getCategoryStats(api.models.map((m) => ({ slug: m })));
+                                        const currentFilter = modelCategoryFilters[api.id] || "all";
+                                        return (
+                                          <>
+                                            <Badge
+                                              variant={currentFilter === "all" ? "default" : "outline"}
+                                              className="cursor-pointer text-[10px] px-1.5 py-0"
+                                              onClick={() => {
+                                                setModelCategoryFilters((prev) => ({
+                                                  ...prev,
+                                                  [api.id]: "all",
+                                                }));
+                                              }}
+                                            >
+                                              {t("全部")} {api.models.length}
+                                            </Badge>
+                                            {Object.entries(stats)
+                                              .filter(([_, count]) => count > 0)
+                                              .map(([category, count]) => {
+                                                const info = getCategoryInfo(category as any);
+                                                return (
+                                                  <Badge
+                                                    key={category}
+                                                    variant={currentFilter === category ? "default" : "outline"}
+                                                    className={`cursor-pointer text-[10px] px-1.5 py-0 ${currentFilter === category ? "" : info.bgColor + " " + info.color + " border-transparent"}`}
+                                                    onClick={() => {
+                                                      setModelCategoryFilters((prev) => ({
+                                                        ...prev,
+                                                        [api.id]: category,
+                                                      }));
+                                                    }}
+                                                  >
+                                                    {info.label} {count}
+                                                  </Badge>
+                                                );
+                                              })}
+                                          </>
+                                        );
+                                      })()}
+                                    </div>
                                   </div>
                                   <div className="space-y-1">
-                                    {(expandedModelIds.has(api.id)
-                                      ? api.models
-                                      : api.models.slice(0, 3)
-                                    ).map((model, idx) => (
-                                      <div
-                                        key={idx}
-                                        className="rounded bg-muted/50 px-2 py-1 font-mono text-xs text-muted-foreground"
-                                      >
-                                        {model}
-                                      </div>
-                                    ))}
+                                    {(() => {
+                                      const currentFilter = modelCategoryFilters[api.id] || "all";
+                                      const filteredModels = currentFilter === "all"
+                                        ? api.models
+                                        : api.models.filter((m) => classifyModel(m) === currentFilter);
+                                      const displayModels = expandedModelIds.has(api.id)
+                                        ? filteredModels
+                                        : filteredModels.slice(0, 3);
+
+                                      return (
+                                        <>
+                                          {displayModels.map((model, idx) => {
+                                            const category = classifyModel(model);
+                                            const categoryInfo = getCategoryInfo(category);
+                                            return (
+                                              <div
+                                                key={idx}
+                                                className="flex items-center gap-2 rounded bg-muted/50 px-2 py-1"
+                                              >
+                                                <span className="flex-1 font-mono text-xs text-muted-foreground">
+                                                  {model}
+                                                </span>
+                                                <Badge
+                                                  variant="outline"
+                                                  className={`${categoryInfo.bgColor} ${categoryInfo.color} border-transparent text-[10px] px-1.5 py-0 shrink-0`}
+                                                >
+                                                  {categoryInfo.label}
+                                                </Badge>
+                                              </div>
+                                            );
+                                          })}
+                                          {filteredModels.length > 3 && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              className="w-full text-xs"
+                                              onClick={() => {
+                                                setExpandedModelIds((prev) => {
+                                                  const next = new Set(prev);
+                                                  if (next.has(api.id)) {
+                                                    next.delete(api.id);
+                                                  } else {
+                                                    next.add(api.id);
+                                                  }
+                                                  return next;
+                                                });
+                                              }}
+                                            >
+                                              {expandedModelIds.has(api.id)
+                                                ? t("收起")
+                                                : t("展开全部 ({count} 个)", { count: filteredModels.length })
+                                              }
+                                            </Button>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
                                   </div>
-                                  {api.models.length > 3 && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="w-full text-xs"
-                                      onClick={() => {
-                                        setExpandedModelIds((prev) => {
-                                          const next = new Set(prev);
-                                          if (next.has(api.id)) {
-                                            next.delete(api.id);
-                                          } else {
-                                            next.add(api.id);
-                                          }
-                                          return next;
-                                        });
-                                      }}
-                                    >
-                                      {expandedModelIds.has(api.id)
-                                        ? t("收起")
-                                        : t("展开全部 ({count} 个)", { count: api.models.length })
-                                      }
-                                    </Button>
-                                  )}
                                 </div>
                               ) : (
                                 <div className="text-sm text-muted-foreground">
