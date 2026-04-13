@@ -350,7 +350,7 @@ export default function AggregateApiPage() {
     }
 
     if (failedAggregateApis.length === 0) {
-      toast.info(t("没有失败的聚合 API"));
+      toast.info(t("没有测试失败的聚合 API"));
       return;
     }
 
@@ -714,6 +714,46 @@ export default function AggregateApiPage() {
     }
   };
 
+  /**
+   * 函数 `copyUrlAndKey`
+   *
+   * 复制 baseUrl 和 apiKey，格式为 "baseUrl apiKey"
+   *
+   * # 参数
+   * - apiId: API ID
+   *
+   * # 返回
+   * 返回函数执行结果
+   */
+  const copyUrlAndKey = async (apiId: string) => {
+    try {
+      const api = aggregateApis.find((item) => item.id === apiId);
+      if (!api) {
+        throw new Error(t("未找到对应的 API"));
+      }
+      const secret = await ensureSecretLoaded(apiId);
+      const authType = String(secret.authType || "").trim().toLowerCase();
+
+      let value: string;
+      if (authType === "userpass") {
+        if (!secret.username || !secret.password) {
+          throw new Error(t("账号密码字段为空"));
+        }
+        value = `${api.url} ${secret.username}:${secret.password}`;
+      } else {
+        if (!secret.key) {
+          throw new Error(t("密钥为空"));
+        }
+        value = `${api.url} ${secret.key}`;
+      }
+
+      await copyTextToClipboard(value);
+      toast.success(t("已复制地址和密钥"));
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const secretPreview = (secret: AggregateApiSecretResult) => {
     const authType = String(secret.authType || "").trim().toLowerCase();
     if (authType === "userpass") {
@@ -850,7 +890,7 @@ export default function AggregateApiPage() {
                           current: String(batchDeleteProgress.current),
                           total: String(batchDeleteProgress.total),
                         })
-                      : t("删除失败项")}
+                      : t("删除测试失败项")}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -954,34 +994,48 @@ export default function AggregateApiPage() {
                     return (
                       <TableRow key={api.id} className="group">
                         <TableCell className="overflow-hidden">
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={<div />}
-                              className="block cursor-help text-left"
+                          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={<div />}
+                                className="block min-w-0 flex-1 cursor-help text-left"
+                              >
+                                <div className="grid gap-0.5 overflow-hidden">
+                                  <span className="block truncate text-xs font-medium text-foreground">
+                                    {api.supplierName || "-"}
+                                  </span>
+                                  <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                                    {api.url}
+                                  </span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
+                                <div className="grid gap-1">
+                                  <div className="text-[11px] font-medium">
+                                    {api.supplierName || "-"}
+                                  </div>
+                                  <div className="break-all text-xs">
+                                    {api.url}
+                                  </div>
+                                  <div className="text-[11px] opacity-80">
+                                    {t("创建时间")}: {createdTimeText}
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                              disabled={!isServiceReady}
+                              onClick={() => {
+                                void copyTextToClipboard(api.url);
+                                toast.success(t("已复制地址"));
+                              }}
                             >
-                              <div className="grid gap-0.5 overflow-hidden">
-                                <span className="block truncate text-xs font-medium text-foreground">
-                                  {api.supplierName || "-"}
-                                </span>
-                                <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                                  {api.url}
-                                </span>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-sm whitespace-pre-wrap break-words">
-                              <div className="grid gap-1">
-                                <div className="text-[11px] font-medium">
-                                  {api.supplierName || "-"}
-                                </div>
-                                <div className="break-all text-xs">
-                                  {api.url}
-                                </div>
-                                <div className="text-[11px] opacity-80">
-                                  {t("创建时间")}: {createdTimeText}
-                                </div>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex justify-center">
@@ -1027,46 +1081,49 @@ export default function AggregateApiPage() {
                                 <Eye className="h-3.5 w-3.5" />
                               )}
                             </Button>
-                            {String(api.authType || "")
-                              .trim()
-                              .toLowerCase() === "userpass" ? (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                    render={<span />}
-                                    nativeButton={false}
-                                    disabled={!isServiceReady}
-                                  >
-                                    <Copy className="h-3.5 w-3.5" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                  render={<span />}
+                                  nativeButton={false}
+                                  disabled={!isServiceReady}
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {String(api.authType || "")
+                                  .trim()
+                                  .toLowerCase() === "userpass" ? (
+                                  <>
+                                    <DropdownMenuItem
+                                      onClick={() => void copySecret(api.id, "username")}
+                                    >
+                                      {t("复制用户名")}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => void copySecret(api.id, "password")}
+                                    >
+                                      {t("复制密码")}
+                                    </DropdownMenuItem>
+                                  </>
+                                ) : (
                                   <DropdownMenuItem
-                                    onClick={() => void copySecret(api.id, "username")}
+                                    onClick={() => void copySecret(api.id, "key")}
                                   >
-                                    {t("复制用户名")}
+                                    {t("复制密钥")}
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => void copySecret(api.id, "password")}
-                                  >
-                                    {t("复制密码")}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-primary"
-                                disabled={!isServiceReady}
-                                onClick={() => void copySecret(api.id, "key")}
-                              >
-                                <Copy className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
+                                )}
+                                <DropdownMenuItem
+                                  onClick={() => void copyUrlAndKey(api.id)}
+                                >
+                                  {t("复制地址和密钥")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
@@ -1403,7 +1460,7 @@ export default function AggregateApiPage() {
       <ConfirmDialog
         open={showBatchDeleteConfirm}
         onOpenChange={(open) => !open && setShowBatchDeleteConfirm(false)}
-        title={t("批量删除失败的聚合 API")}
+        title={t("批量删除测试失败的聚合 API")}
         description={t("确认删除 {count} 个测试失败的聚合 API？此操作不可恢复。", {
           count: String(failedAggregateApis.length),
         })}
