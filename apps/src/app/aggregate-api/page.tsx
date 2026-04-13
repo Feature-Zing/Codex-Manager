@@ -761,69 +761,105 @@ export default function AggregateApiPage() {
                 </Select>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  className="h-10 gap-2"
-                  onClick={() => void handleBatchTest()}
-                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
-                >
-                  <Zap className={isBatchTesting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                  {isBatchTesting
-                    ? t("测试中 {current}/{total}", {
-                        current: String(batchTestProgress.current),
-                        total: String(batchTestProgress.total),
-                      })
-                    : t("批量测试")}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-10 gap-2"
-                  onClick={() => void handleBatchToggle(true)}
-                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
-                >
-                  <Power className={isBatchToggling ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                  {isBatchToggling
-                    ? t("操作中 {current}/{total}", {
-                        current: String(batchToggleProgress.current),
-                        total: String(batchToggleProgress.total),
-                      })
-                    : t("全部启用")}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-10 gap-2"
-                  onClick={() => void handleBatchToggle(false)}
-                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
-                >
-                  <PowerOff className={isBatchToggling ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                  {isBatchToggling
-                    ? t("操作中 {current}/{total}", {
-                        current: String(batchToggleProgress.current),
-                        total: String(batchToggleProgress.total),
-                      })
-                    : t("全部禁用")}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-10 gap-2"
-                  onClick={() => void handleBatchDeleteFailed()}
-                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || failedAggregateApis.length === 0}
-                >
-                  <Trash2 className={isBatchDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
-                  {isBatchDeleting
-                    ? t("删除中 {current}/{total}", {
-                        current: String(batchDeleteProgress.current),
-                        total: String(batchDeleteProgress.total),
-                      })
-                    : t("删除失败项")}
-                </Button>
-                <Button
-                  className="h-10 gap-2 shadow-lg shadow-primary/20"
-                  onClick={openCreateModal}
-                  disabled={!isServiceReady}
-                >
-                  <Plus className="h-4 w-4" /> {t("新建聚合 API")}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger render={<div />}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => void handleBatchTest()}
+                      disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
+                    >
+                      <Zap className={isBatchTesting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isBatchTesting
+                      ? t("测试中 {current}/{total}", {
+                          current: String(batchTestProgress.current),
+                          total: String(batchTestProgress.total),
+                        })
+                      : t("批量测试")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<div />}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => void handleBatchToggle(true)}
+                      disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
+                    >
+                      <Power className={isBatchToggling ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isBatchToggling
+                      ? t("操作中 {current}/{total}", {
+                          current: String(batchToggleProgress.current),
+                          total: String(batchToggleProgress.total),
+                        })
+                      : t("全部启用")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<div />}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => void handleBatchToggle(false)}
+                      disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
+                    >
+                      <PowerOff className={isBatchToggling ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isBatchToggling
+                      ? t("操作中 {current}/{total}", {
+                          current: String(batchToggleProgress.current),
+                          total: String(batchToggleProgress.total),
+                        })
+                      : t("全部禁用")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<div />}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => void handleBatchDeleteFailed()}
+                      disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || failedAggregateApis.length === 0}
+                    >
+                      <Trash2 className={isBatchDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isBatchDeleting
+                      ? t("删除中 {current}/{total}", {
+                          current: String(batchDeleteProgress.current),
+                          total: String(batchDeleteProgress.total),
+                        })
+                      : t("删除失败项")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<div />}>
+                    <Button
+                      size="icon"
+                      className="h-10 w-10 shadow-lg shadow-primary/20"
+                      onClick={openCreateModal}
+                      disabled={!isServiceReady}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("新建聚合 API")}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </CardContent>
