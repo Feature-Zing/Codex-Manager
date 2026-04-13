@@ -131,6 +131,9 @@ export default function AggregateApiPage() {
   const [togglingApiId, setTogglingApiId] = useState<string | null>(null);
   const [isBatchTesting, setIsBatchTesting] = useState(false);
   const [batchTestProgress, setBatchTestProgress] = useState({ current: 0, total: 0 });
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [batchDeleteProgress, setBatchDeleteProgress] = useState({ current: 0, total: 0 });
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
     {},
   );
@@ -193,6 +196,10 @@ export default function AggregateApiPage() {
     }
     return aggregateApis.filter((api) => api.providerType === providerFilter);
   }, [aggregateApis, providerFilter]);
+
+  const failedAggregateApis = useMemo(() => {
+    return filteredAggregateApis.filter((api) => api.lastTestStatus === "failed");
+  }, [filteredAggregateApis]);
 
   const totalPages = useMemo(
     () => Math.ceil(filteredAggregateApis.length / pageSize),
@@ -318,6 +325,55 @@ export default function AggregateApiPage() {
 
     toast.success(
       t("批量测试完成: {success} 成功, {fail} 失败", {
+        success: String(successCount),
+        fail: String(failCount),
+      })
+    );
+  };
+
+  const handleBatchDeleteFailed = async () => {
+    if (!isServiceReady) {
+      toast.info(t("服务未连接"));
+      return;
+    }
+
+    if (failedAggregateApis.length === 0) {
+      toast.info(t("没有失败的聚合 API"));
+      return;
+    }
+
+    setShowBatchDeleteConfirm(true);
+  };
+
+  const confirmBatchDeleteFailed = async () => {
+    setShowBatchDeleteConfirm(false);
+
+    setIsBatchDeleting(true);
+    setBatchDeleteProgress({ current: 0, total: failedAggregateApis.length });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < failedAggregateApis.length; i++) {
+      const api = failedAggregateApis[i];
+      setBatchDeleteProgress({ current: i + 1, total: failedAggregateApis.length });
+
+      try {
+        await accountClient.deleteAggregateApi(api.id);
+        successCount++;
+      } catch (error) {
+        failCount++;
+      }
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+    await queryClient.invalidateQueries({ queryKey: ["apikeys"] });
+    await queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] });
+    setIsBatchDeleting(false);
+    setBatchDeleteProgress({ current: 0, total: 0 });
+
+    toast.success(
+      t("批量删除完成: {success} 成功, {fail} 失败", {
         success: String(successCount),
         fail: String(failCount),
       })
@@ -655,7 +711,7 @@ export default function AggregateApiPage() {
                   variant="outline"
                   className="h-10 gap-2"
                   onClick={() => void handleBatchTest()}
-                  disabled={!isServiceReady || isBatchTesting || filteredAggregateApis.length === 0}
+                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || filteredAggregateApis.length === 0}
                 >
                   <Zap className={isBatchTesting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
                   {isBatchTesting
@@ -664,6 +720,20 @@ export default function AggregateApiPage() {
                         total: String(batchTestProgress.total),
                       })
                     : t("批量测试")}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2"
+                  onClick={() => void handleBatchDeleteFailed()}
+                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || failedAggregateApis.length === 0}
+                >
+                  <Trash2 className={isBatchDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                  {isBatchDeleting
+                    ? t("删除中 {current}/{total}", {
+                        current: String(batchDeleteProgress.current),
+                        total: String(batchDeleteProgress.total),
+                      })
+                    : t("删除失败项")}
                 </Button>
                 <Button
                   className="h-10 gap-2 shadow-lg shadow-primary/20"
@@ -1135,6 +1205,18 @@ export default function AggregateApiPage() {
           deleteMutation.mutate(deleteId);
           setDeleteId(null);
         }}
+      />
+
+      <ConfirmDialog
+        open={showBatchDeleteConfirm}
+        onOpenChange={(open) => !open && setShowBatchDeleteConfirm(false)}
+        title={t("批量删除失败的聚合 API")}
+        description={t("确认删除 {count} 个测试失败的聚合 API？此操作不可恢复。", {
+          count: String(failedAggregateApis.length),
+        })}
+        confirmText={t("删除")}
+        cancelText={t("取消")}
+        onConfirm={() => void confirmBatchDeleteFailed()}
       />
     </div>
   );
