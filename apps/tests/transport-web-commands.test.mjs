@@ -46,6 +46,12 @@ test("createWebCommandMap 复用 keyId 到 id 的参数映射", () => {
   });
 });
 
+test("createWebCommandMap 支持聚合 API 刷新模型命令", () => {
+  const descriptor = commandMap.service_aggregate_api_fetch_models;
+  assert.ok(descriptor);
+  assert.equal(descriptor.rpcMethod, "aggregateApi/fetchModels");
+});
+
 test("createWebCommandMap 为登录命令补齐 Web 运行壳参数", () => {
   const startLogin = commandMap.service_login_start;
   assert.ok(startLogin.mapParams);

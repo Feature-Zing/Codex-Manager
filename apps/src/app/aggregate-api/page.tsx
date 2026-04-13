@@ -1023,18 +1023,6 @@ export default function AggregateApiPage() {
                                 </div>
                               </TooltipContent>
                             </Tooltip>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-                              disabled={!isServiceReady}
-                              onClick={() => {
-                                void copyTextToClipboard(api.url);
-                                toast.success(t("已复制地址"));
-                              }}
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </Button>
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
