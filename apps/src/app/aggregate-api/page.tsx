@@ -9,6 +9,8 @@ import {
   EyeOff,
   MoreVertical,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Settings2,
   ShieldCheck,
@@ -134,6 +136,8 @@ export default function AggregateApiPage() {
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [batchDeleteProgress, setBatchDeleteProgress] = useState({ current: 0, total: 0 });
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [isBatchToggling, setIsBatchToggling] = useState(false);
+  const [batchToggleProgress, setBatchToggleProgress] = useState({ current: 0, total: 0 });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
     {},
   );
@@ -374,6 +378,56 @@ export default function AggregateApiPage() {
 
     toast.success(
       t("批量删除完成: {success} 成功, {fail} 失败", {
+        success: String(successCount),
+        fail: String(failCount),
+      })
+    );
+  };
+
+  const handleBatchToggle = async (enabled: boolean) => {
+    if (!isServiceReady) {
+      toast.info(t("服务未连接"));
+      return;
+    }
+
+    const apisToToggle = filteredAggregateApis;
+    if (apisToToggle.length === 0) {
+      toast.info(t("没有可操作的聚合 API"));
+      return;
+    }
+
+    setIsBatchToggling(true);
+    setBatchToggleProgress({ current: 0, total: apisToToggle.length });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < apisToToggle.length; i++) {
+      const api = apisToToggle[i];
+      setBatchToggleProgress({ current: i + 1, total: apisToToggle.length });
+
+      try {
+        await accountClient.updateAggregateApi(api.id, {
+          supplierName: api.supplierName || api.url,
+          status: enabled ? "active" : "disabled",
+        });
+        successCount++;
+      } catch (error) {
+        failCount++;
+      }
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] }),
+      queryClient.invalidateQueries({ queryKey: ["apikeys"] }),
+      queryClient.invalidateQueries({ queryKey: ["startup-snapshot"] }),
+    ]);
+    setIsBatchToggling(false);
+    setBatchToggleProgress({ current: 0, total: 0 });
+
+    toast.success(
+      t("批量{action}完成: {success} 成功, {fail} 失败", {
+        action: enabled ? "启用" : "禁用",
         success: String(successCount),
         fail: String(failCount),
       })
@@ -711,7 +765,7 @@ export default function AggregateApiPage() {
                   variant="outline"
                   className="h-10 gap-2"
                   onClick={() => void handleBatchTest()}
-                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || filteredAggregateApis.length === 0}
+                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
                 >
                   <Zap className={isBatchTesting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
                   {isBatchTesting
@@ -724,8 +778,36 @@ export default function AggregateApiPage() {
                 <Button
                   variant="outline"
                   className="h-10 gap-2"
+                  onClick={() => void handleBatchToggle(true)}
+                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
+                >
+                  <Power className={isBatchToggling ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                  {isBatchToggling
+                    ? t("操作中 {current}/{total}", {
+                        current: String(batchToggleProgress.current),
+                        total: String(batchToggleProgress.total),
+                      })
+                    : t("全部启用")}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2"
+                  onClick={() => void handleBatchToggle(false)}
+                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || filteredAggregateApis.length === 0}
+                >
+                  <PowerOff className={isBatchToggling ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                  {isBatchToggling
+                    ? t("操作中 {current}/{total}", {
+                        current: String(batchToggleProgress.current),
+                        total: String(batchToggleProgress.total),
+                      })
+                    : t("全部禁用")}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2"
                   onClick={() => void handleBatchDeleteFailed()}
-                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || failedAggregateApis.length === 0}
+                  disabled={!isServiceReady || isBatchTesting || isBatchDeleting || isBatchToggling || failedAggregateApis.length === 0}
                 >
                   <Trash2 className={isBatchDeleting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
                   {isBatchDeleting
