@@ -98,3 +98,11 @@ test("readServiceListenConfig 对齐监听模式配置返回", () => {
   assert.deepEqual(listenConfig.options, ["loopback", "all_interfaces"]);
   assert.equal(listenConfig.requiresRestart, true);
 });
+
+test("readGatewayManualAccountId 统一读取 manual account id", () => {
+  assert.equal(
+    gatewaySettings.readGatewayManualAccountId({ accountId: "acc-9" }),
+    "acc-9"
+  );
+  assert.equal(gatewaySettings.readGatewayManualAccountId(null), "");
+});

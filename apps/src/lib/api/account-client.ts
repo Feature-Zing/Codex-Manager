@@ -32,6 +32,7 @@ import {
   readDeleteUnavailableFreeResult,
 } from "./account-maintenance";
 import { serializeManagedModelForRpc } from "./model-catalog";
+import { unwrapUsageSnapshotPayload } from "./usage-response";
 import {
   AccountListResult,
   AccountUsage,
@@ -360,11 +361,7 @@ export const accountClient = {
 
   async getUsage(accountId: string): Promise<AccountUsage | null> {
     const result = await invoke<unknown>("service_usage_read", withAddr({ accountId }));
-    const source =
-      result && typeof result === "object" && "snapshot" in result
-        ? (result as { snapshot?: unknown }).snapshot
-        : result;
-    return normalizeUsageSnapshot(source);
+    return normalizeUsageSnapshot(unwrapUsageSnapshotPayload(result));
   },
   async listUsage(): Promise<AccountUsage[]> {
     const result = await invoke<unknown>("service_usage_list", withAddr());

@@ -144,6 +144,10 @@ export function readGatewayRouteStrategySettings(
   };
 }
 
+export function readGatewayManualAccountId(payload: unknown): string {
+  return readStringField(payload, "accountId");
+}
+
 export function readGatewayConcurrencyRecommendation(
   payload: unknown
 ): GatewayConcurrencyRecommendation {
