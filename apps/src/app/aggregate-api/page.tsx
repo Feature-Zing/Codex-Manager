@@ -13,6 +13,7 @@ import {
   Settings2,
   ShieldCheck,
   Trash2,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AggregateApiModal } from "@/components/modals/aggregate-api-modal";
@@ -128,6 +129,8 @@ export default function AggregateApiPage() {
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
   const [togglingApiId, setTogglingApiId] = useState<string | null>(null);
+  const [isBatchTesting, setIsBatchTesting] = useState(false);
+  const [batchTestProgress, setBatchTestProgress] = useState({ current: 0, total: 0 });
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
     {},
   );
@@ -272,6 +275,54 @@ export default function AggregateApiPage() {
       toast.error(`${t("测试")} ${t("失败")}: ${error instanceof Error ? error.message : String(error)}`);
     },
   });
+
+  const handleBatchTest = async () => {
+    if (!isServiceReady) {
+      toast.info(t("服务未连接"));
+      return;
+    }
+
+    const apisToTest = filteredAggregateApis;
+    if (apisToTest.length === 0) {
+      toast.info(t("没有可测试的聚合 API"));
+      return;
+    }
+
+    setIsBatchTesting(true);
+    setBatchTestProgress({ current: 0, total: apisToTest.length });
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < apisToTest.length; i++) {
+      const api = apisToTest[i];
+      setBatchTestProgress({ current: i + 1, total: apisToTest.length });
+      setTestingApiId(api.id);
+
+      try {
+        const result = await accountClient.testAggregateApiConnection(api.id);
+        if (result.ok) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (error) {
+        failCount++;
+      }
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+    setTestingApiId(null);
+    setIsBatchTesting(false);
+    setBatchTestProgress({ current: 0, total: 0 });
+
+    toast.success(
+      t("批量测试完成: {success} 成功, {fail} 失败", {
+        success: String(successCount),
+        fail: String(failCount),
+      })
+    );
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (apiId: string) => accountClient.deleteAggregateApi(apiId),
@@ -599,13 +650,29 @@ export default function AggregateApiPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button
-                className="h-10 gap-2 shadow-lg shadow-primary/20"
-                onClick={openCreateModal}
-                disabled={!isServiceReady}
-              >
-                <Plus className="h-4 w-4" /> {t("新建聚合 API")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2"
+                  onClick={() => void handleBatchTest()}
+                  disabled={!isServiceReady || isBatchTesting || filteredAggregateApis.length === 0}
+                >
+                  <Zap className={isBatchTesting ? "h-4 w-4 animate-pulse" : "h-4 w-4"} />
+                  {isBatchTesting
+                    ? t("测试中 {current}/{total}", {
+                        current: String(batchTestProgress.current),
+                        total: String(batchTestProgress.total),
+                      })
+                    : t("批量测试")}
+                </Button>
+                <Button
+                  className="h-10 gap-2 shadow-lg shadow-primary/20"
+                  onClick={openCreateModal}
+                  disabled={!isServiceReady}
+                >
+                  <Plus className="h-4 w-4" /> {t("新建聚合 API")}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
