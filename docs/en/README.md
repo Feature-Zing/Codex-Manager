@@ -17,6 +17,9 @@ CodexManager is a local desktop + service-process account pool manager and gatew
 ## Latest Changes
 
 - Current latest release: `v0.2.1` (released on 2026-04-12).
+- The main branch now includes a dedicated `About the Author` page under Settings, collecting the donation QR codes, the author's WeChat QR, and the Telegram group entry in one place.
+- The desktop app now opens the Telegram group link through the system browser, fixing the in-app jump that could fail silently.
+- Today's statistics now use the browser-local day range via `dayStartTs` / `dayEndTs`, so cross-time-zone usage no longer drifts to the service host time zone.
 - The model management page is now the canonical model catalog editor: desktop builds overwrite `~/.codex/models_cache.json` automatically after catalog changes, while web deployments expose a `models_cache.json` export action.
 - The catalog now stores and edits richer model metadata such as `display_name`, `description`, `supported_reasoning_levels`, `visibility`, and `supported_in_api`.
 - Web mode now requires the `codexmanager-web` shell with `/api/runtime` and `/api/rpc`; serving only a static frontend is no longer considered a complete deployment.
