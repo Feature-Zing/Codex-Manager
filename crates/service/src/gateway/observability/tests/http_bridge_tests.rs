@@ -1134,7 +1134,10 @@ fn openai_chat_sse_reader_requires_terminal_event_before_success() {
     assert!(mapped.contains("chat.completion.chunk"));
     assert!(!mapped.contains("data: [DONE]"));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
 }
 
 /// 函数 `openai_completions_sse_reader_requires_terminal_event_before_success`
@@ -1170,7 +1173,10 @@ fn openai_completions_sse_reader_requires_terminal_event_before_success() {
     assert!(mapped.contains("\"object\":\"text_completion\""));
     assert!(!mapped.contains("data: [DONE]"));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
 }
 
 #[test]
@@ -1445,7 +1451,10 @@ fn gemini_sse_reader_requires_response_completed_before_done() {
         .clone();
     assert!(mapped.starts_with("event: error\ndata: "));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
     assert_eq!(collector.last_event_type, None);
 }
 
@@ -1474,7 +1483,10 @@ fn gemini_sse_reader_marks_incomplete_trailing_json_as_stream_error() {
         .clone();
     assert!(mapped.starts_with("event: error\ndata: "));
     assert!(!collector.saw_terminal);
-    assert_eq!(collector.terminal_error.as_deref(), Some("网络抖动"));
+    assert_eq!(
+        collector.terminal_error.as_deref(),
+        Some("连接中断（可能是网络波动或客户端主动取消）")
+    );
     assert_eq!(collector.last_event_type, None);
 }
 

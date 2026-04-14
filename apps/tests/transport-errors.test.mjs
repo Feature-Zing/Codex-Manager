@@ -70,3 +70,25 @@ test("getAppErrorMessage 与 isCommandMissingError 复用统一文案规则", ()
     true
   );
 });
+
+test("getAppErrorMessage 会把底层 body error 映射为更易懂的上游错误", () => {
+  assert.equal(
+    transportErrors.getAppErrorMessage(new Error("request or response body error")),
+    "上游中途断开，未返回具体错误信息"
+  );
+  assert.equal(
+    transportErrors.getAppErrorMessage("stream read failed"),
+    "上游中途断开，未返回具体错误信息"
+  );
+});
+
+test("getAppErrorMessage 会把旧的网络抖动文案统一收敛为连接中断提示", () => {
+  assert.equal(
+    transportErrors.getAppErrorMessage("网络抖动"),
+    "连接中断（可能是网络波动或客户端主动取消）"
+  );
+  assert.equal(
+    transportErrors.getAppErrorMessage("stream disconnected before completion"),
+    "连接中断（可能是网络波动或客户端主动取消）"
+  );
+});

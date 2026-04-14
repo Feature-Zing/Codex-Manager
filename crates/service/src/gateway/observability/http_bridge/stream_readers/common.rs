@@ -9,7 +9,8 @@ const DEFAULT_SSE_KEEPALIVE_INTERVAL_MS: u64 = 15_000;
 const ENV_SSE_KEEPALIVE_INTERVAL_MS: &str = "CODEXMANAGER_SSE_KEEPALIVE_INTERVAL_MS";
 
 static SSE_KEEPALIVE_INTERVAL_MS: AtomicU64 = AtomicU64::new(DEFAULT_SSE_KEEPALIVE_INTERVAL_MS);
-const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str = "网络抖动";
+const STREAM_INCOMPLETE_FALLBACK_MESSAGE: &str =
+    "连接中断（可能是网络波动或客户端主动取消）";
 const STREAM_READ_FAILED_FALLBACK_MESSAGE: &str = "stream read failed";
 const STREAM_IDLE_TIMEOUT_FALLBACK_MESSAGE: &str = "stream idle timeout";
 
@@ -388,7 +389,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_disconnect() {
         assert_eq!(
             classify_upstream_stream_read_error("connection reset by peer"),
-            "网络抖动"
+            "连接中断（可能是网络波动或客户端主动取消）"
         );
     }
 
@@ -407,7 +408,7 @@ mod tests {
     fn classify_upstream_stream_read_error_maps_timeout() {
         assert_eq!(
             classify_upstream_stream_read_error("operation timed out"),
-            "网络抖动"
+            "连接中断（可能是网络波动或客户端主动取消）"
         );
     }
 
@@ -424,7 +425,13 @@ mod tests {
     /// 无
     #[test]
     fn stream_terminal_messages_are_user_friendly() {
-        assert_eq!(stream_incomplete_message(), "网络抖动");
-        assert_eq!(stream_reader_disconnected_message(), "网络抖动");
+        assert_eq!(
+            stream_incomplete_message(),
+            "连接中断（可能是网络波动或客户端主动取消）"
+        );
+        assert_eq!(
+            stream_reader_disconnected_message(),
+            "连接中断（可能是网络波动或客户端主动取消）"
+        );
     }
 }
