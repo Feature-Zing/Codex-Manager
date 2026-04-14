@@ -158,117 +158,6 @@ fn retry_upstream_server_error_once(
     }
 }
 
-/// 函数 `retry_compact_challenge_with_standard_responses`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-04
-///
-/// # 参数
-/// - client: 参数 client
-/// - method: 参数 method
-/// - upstream_base: 参数 upstream_base
-/// - request_deadline: 参数 request_deadline
-/// - incoming_headers: 参数 incoming_headers
-/// - body: 参数 body
-/// - auth_token: 参数 auth_token
-/// - account: 参数 account
-/// - strip_session_affinity: 参数 strip_session_affinity
-/// - debug: 参数 debug
-/// - status: 参数 status
-/// - upstream_content_type: 参数 upstream_content_type
-///
-/// # 返回
-/// 返回函数执行结果
-#[allow(clippy::too_many_arguments)]
-fn retry_compact_challenge_with_standard_responses(
-    client: &reqwest::blocking::Client,
-    method: &reqwest::Method,
-    upstream_base: &str,
-    request_deadline: Option<Instant>,
-    incoming_headers: &super::super::super::IncomingHeaderSnapshot,
-    body: &Bytes,
-    auth_token: &str,
-    account: &Account,
-    strip_session_affinity: bool,
-    debug: bool,
-    status: reqwest::StatusCode,
-    upstream_content_type: Option<&reqwest::header::HeaderValue>,
-    upstream_cf_ray: Option<&str>,
-) -> Result<Option<reqwest::blocking::Response>, ()> {
-    if !super::super::config::is_chatgpt_backend_base(upstream_base) {
-        return Ok(None);
-    }
-    if !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray) {
-        return Ok(None);
-    }
-
-    let standard_path = "/v1/responses";
-    let (standard_url, _) =
-        crate::gateway::request_rewrite::compute_upstream_url(upstream_base, standard_path);
-    let standard_body = crate::gateway::request_rewrite::apply_request_overrides_with_service_tier(
-        standard_path,
-        body.to_vec(),
-        None,
-        None,
-        None,
-        Some(upstream_base),
-    );
-    let standard_body = Bytes::from(standard_body);
-    let standard_ctx = UpstreamRequestContext {
-        request_path: standard_path,
-    };
-
-    if debug {
-        log::warn!(
-            "event=gateway_compact_challenge_downgrade_retry from_path=/v1/responses/compact to_path={} status={} account_id={} upstream_url={}",
-            standard_path,
-            status.as_u16(),
-            account.id,
-            standard_url
-        );
-    }
-    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
-        account_id: Some(account.id.as_str()),
-        request_path: standard_path,
-        method: method.as_str(),
-        stage: "compact_challenge_downgrade_retry",
-        error_kind: Some("cloudflare_challenge"),
-        upstream_url: Some(standard_url.as_str()),
-        cf_ray: upstream_cf_ray,
-        status_code: Some(status.as_u16()),
-        compression_enabled: false,
-        compression_retry_attempted: false,
-        message: "compact path hit challenge and downgraded to standard responses path",
-        ..GatewayErrorLogInput::default()
-    });
-
-    match super::transport::send_upstream_request(
-        client,
-        method,
-        standard_url.as_str(),
-        request_deadline,
-        standard_ctx,
-        incoming_headers,
-        &standard_body,
-        true,
-        auth_token,
-        account,
-        strip_session_affinity,
-    ) {
-        Ok(resp) => Ok(resp.status().is_success().then_some(resp)),
-        Err(err) => {
-            log::warn!(
-                "event=gateway_compact_challenge_downgrade_retry_error path={} status=502 account_id={} err={}",
-                standard_path,
-                account.id,
-                err
-            );
-            Ok(None)
-        }
-    }
-}
-
 /// 函数 `retry_chatgpt_challenge_without_compression`
 ///
 /// 作者: gaohongshun
@@ -613,70 +502,45 @@ where
         }
     }
 
-    match retry_compact_challenge_with_standard_responses(
-        client,
-        method,
-        upstream_base,
-        request_deadline,
-        incoming_headers,
-        body,
-        current_auth_token.as_str(),
-        account,
-        strip_session_affinity,
-        debug,
-        status,
-        upstream.headers().get(reqwest::header::CONTENT_TYPE),
-        first_header_value(upstream.headers(), "cf-ray"),
-    ) {
-        Ok(Some(resp)) => {
-            upstream = resp;
-            status = upstream.status();
-        }
-        Ok(None) => {}
-        Err(()) => {
-            return PostRetryFlowDecision::Terminal {
-                status_code: 504,
-                message: "upstream total timeout exceeded".to_string(),
-            };
-        }
-    }
-
-    // 中文注释：主流程 fallback 只覆盖首跳响应，这里补齐“重试后仍 challenge/401/403/429”场景。
-    match handle_openai_fallback_branch(
-        client,
-        storage,
-        method,
-        incoming_headers,
-        body,
-        is_stream,
-        upstream_base,
-        path,
-        upstream_fallback_base,
-        account,
-        token,
-        strip_session_affinity,
-        debug,
-        allow_openai_fallback,
-        status,
-        upstream.headers().get(reqwest::header::CONTENT_TYPE),
-        has_more_candidates,
-        &mut log_gateway_result,
-    ) {
-        FallbackBranchResult::NotTriggered => {}
-        FallbackBranchResult::RespondUpstream(resp) => {
-            return PostRetryFlowDecision::RespondUpstream(resp);
-        }
-        FallbackBranchResult::Failover => {
-            return PostRetryFlowDecision::Failover;
-        }
-        FallbackBranchResult::Terminal {
-            status_code,
-            message,
-        } => {
-            return PostRetryFlowDecision::Terminal {
+    if !(path == "/v1/responses/compact" || path.starts_with("/v1/responses/compact?")) {
+        // 中文注释：compact 失败直接返回自身的结构化错误，不再进入通用 fallback。
+        // 主流程 fallback 只覆盖首跳响应，这里补齐“重试后仍 challenge/401/403/429”场景。
+        match handle_openai_fallback_branch(
+            client,
+            storage,
+            method,
+            incoming_headers,
+            body,
+            is_stream,
+            upstream_base,
+            path,
+            upstream_fallback_base,
+            account,
+            token,
+            strip_session_affinity,
+            debug,
+            allow_openai_fallback,
+            status,
+            upstream.headers().get(reqwest::header::CONTENT_TYPE),
+            has_more_candidates,
+            &mut log_gateway_result,
+        ) {
+            FallbackBranchResult::NotTriggered => {}
+            FallbackBranchResult::RespondUpstream(resp) => {
+                return PostRetryFlowDecision::RespondUpstream(resp);
+            }
+            FallbackBranchResult::Failover => {
+                return PostRetryFlowDecision::Failover;
+            }
+            FallbackBranchResult::Terminal {
                 status_code,
                 message,
-            };
+            } => {
+                return PostRetryFlowDecision::Terminal {
+                    status_code,
+                    message,
+                };
+            }
         }
     }
 
