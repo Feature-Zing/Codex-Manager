@@ -37,7 +37,7 @@ test("normalizeGatewayMode 只接受 transparent，其余都回退到 enhanced",
   assert.equal(gatewayMode.normalizeGatewayMode("other"), "enhanced");
 });
 
-test("toGatewayModeOverride 仅在透传模式下写入 override", () => {
-  assert.equal(gatewayMode.toGatewayModeOverride("enhanced"), "");
-  assert.equal(gatewayMode.toGatewayModeOverride("transparent"), "transparent");
+test("toGatewayModeOverride 仅在强兼容模式下写入 override", () => {
+  assert.equal(gatewayMode.toGatewayModeOverride("transparent"), "");
+  assert.equal(gatewayMode.toGatewayModeOverride("enhanced"), "enhanced");
 });

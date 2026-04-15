@@ -250,6 +250,17 @@ pub(super) fn try_openai_fallback(
         incoming_headers.conversation_id(),
         prompt_cache_key.as_deref(),
     );
+    super::session_affinity::log_outgoing_session_affinity(
+        request_path,
+        account_id,
+        incoming_headers.session_id(),
+        incoming_headers.client_request_id(),
+        incoming_headers.turn_state(),
+        incoming_headers.conversation_id(),
+        prompt_cache_key.as_deref(),
+        request_affinity,
+        strip_session_affinity,
+    );
     let mut upstream_headers = if is_compact_request_path(request_path) {
         let header_input = super::upstream::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token: bearer.as_str(),
@@ -310,10 +321,26 @@ pub(super) fn try_openai_fallback(
         Err(first_err) => {
             let fresh = super::fresh_upstream_client_for_account(account.id.as_str());
             match build_request(&fresh).send() {
-                Ok(resp) => resp,
+                Ok(resp) => {
+                    log::info!(
+                        "event=gateway_openai_fallback_retry_with_fresh_client_succeeded path={} account_id={} upstream_base={}",
+                        request_path,
+                        account.id,
+                        upstream_base
+                    );
+                    resp
+                }
                 Err(second_err) => {
                     let duration_ms = super::duration_to_millis(attempt_started_at.elapsed());
                     super::metrics::record_gateway_upstream_attempt(duration_ms, true);
+                    log::warn!(
+                        "event=gateway_openai_fallback_retry_with_fresh_client_failed path={} account_id={} upstream_base={} first_err={} retry_err={}",
+                        request_path,
+                        account.id,
+                        upstream_base,
+                        first_err,
+                        second_err
+                    );
                     return Err(format!(
                         "{}; retry_after_fresh_client: {}",
                         first_err, second_err

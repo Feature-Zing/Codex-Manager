@@ -1,5 +1,8 @@
 use super::*;
 
+const MISSING_AUTH_JSON_OPENAI_API_KEY_ERROR: &str =
+    "配置错误：未配置auth.json的OPENAI_API_KEY(invalid api key)";
+
 /// 函数 `gateway_logs_invalid_api_key_error`
 ///
 /// 作者: gaohongshun
@@ -21,7 +24,7 @@ fn gateway_logs_invalid_api_key_error() {
 
     let server = TestServer::start();
     let req_body = r#"{"model":"gpt-5.3-codex","input":"hello"}"#;
-    let (status, _) = post_http_raw(
+    let (status, body) = post_http_raw(
         &server.addr,
         "/v1/responses",
         req_body,
@@ -31,6 +34,14 @@ fn gateway_logs_invalid_api_key_error() {
         ],
     );
     assert_eq!(status, 403);
+    assert!(
+        body.contains("invalid api key"),
+        "gateway should return raw upstream message, got {body}"
+    );
+    assert!(
+        !body.contains("未配置auth.json"),
+        "gateway response should not expose bilingual log text, got {body}"
+    );
 
     let storage = Storage::open(&db_path).expect("open db");
     storage.init().expect("init schema");
@@ -52,11 +63,11 @@ fn gateway_logs_invalid_api_key_error() {
             && item.output_tokens.is_none()
             && item.total_tokens.is_none()
             && item.reasoning_output_tokens.is_none()
-            && item.error.as_deref() == Some("invalid api key")
+            && item.error.as_deref() == Some(MISSING_AUTH_JSON_OPENAI_API_KEY_ERROR)
     });
     assert!(
         found,
-        "expected invalid api key request to be logged, got {:?}",
+        "expected missing auth.json OPENAI_API_KEY request to be logged, got {:?}",
         logs.iter()
             .map(|v| (&v.request_path, v.status_code, v.error.as_deref()))
             .collect::<Vec<_>>()

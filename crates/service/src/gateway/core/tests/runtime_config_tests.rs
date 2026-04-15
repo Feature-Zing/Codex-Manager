@@ -129,12 +129,15 @@ fn reload_from_env_defaults_limits_to_unbounded_codex_friendly_values() {
     reload_from_env();
 
     assert_eq!(account_max_inflight_limit(), 0);
-    assert_eq!(current_gateway_mode(), "enhanced");
-    assert!(!transparent_gateway_mode_enabled());
+    assert_eq!(current_gateway_mode(), "transparent");
+    assert!(transparent_gateway_mode_enabled());
     assert!(!strict_request_param_allowlist_enabled());
     assert_eq!(request_gate_wait_timeout(), None);
     assert_eq!(front_proxy_max_body_bytes(), 0);
-    assert_eq!(upstream_stream_timeout(), Some(Duration::from_millis(300_000)));
+    assert_eq!(
+        upstream_stream_timeout(),
+        Some(Duration::from_millis(300_000))
+    );
     assert!(request_compression_enabled());
 }
 
@@ -363,6 +366,33 @@ fn set_model_forward_rules_updates_env_cache_and_matching() {
         Some("gpt-5.4".to_string())
     );
     assert_eq!(resolve_forwarded_model("gpt-5.4"), None);
+}
+
+#[test]
+fn set_model_forward_rules_preserves_case_while_matching_case_insensitively() {
+    let _guard = crate::test_env_guard();
+    let _rules_guard = EnvGuard::clear(ENV_MODEL_FORWARD_RULES);
+
+    let applied = set_model_forward_rules("Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro")
+        .expect("set mixed-case model forward rules");
+
+    assert_eq!(
+        applied,
+        "Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro"
+    );
+    assert_eq!(current_model_forward_rules(), applied);
+    assert_eq!(
+        std::env::var(ENV_MODEL_FORWARD_RULES).ok().as_deref(),
+        Some(applied.as_str())
+    );
+    assert_eq!(
+        resolve_forwarded_model("spark-lite"),
+        Some("GPT-5.4-mini".to_string())
+    );
+    assert_eq!(
+        resolve_forwarded_model("claude-sonnet-4-20250514"),
+        Some("Gemini-2.5-Pro".to_string())
+    );
 }
 
 #[test]

@@ -6,6 +6,14 @@ const VERSION_HEADER_NAME: &str = "version";
 const X_CODEX_WINDOW_ID_HEADER_NAME: &str = "x-codex-window-id";
 const X_CODEX_PARENT_THREAD_ID_HEADER_NAME: &str = "x-codex-parent-thread-id";
 
+fn anchor_fingerprint_or_dash(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(crate::gateway::anchor_fingerprint::fingerprint_anchor)
+        .unwrap_or_else(|| "-".to_string())
+}
+
 pub(crate) struct CodexUpstreamHeaderInput<'a> {
     pub(crate) auth_token: &'a str,
     pub(crate) chatgpt_account_id: Option<&'a str>,
@@ -312,18 +320,32 @@ fn resolve_window_id(
     resolved_session_id: Option<&str>,
     strip_session_affinity: bool,
 ) -> Option<String> {
+    let normalized_session_id = resolved_session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if !strip_session_affinity {
         if let Some(window_id) = incoming_window_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            return Some(window_id.to_string());
+            let matches_session = match normalized_session_id {
+                Some(session_id) => {
+                    window_id == session_id
+                        || window_id.starts_with(format!("{session_id}:").as_str())
+                }
+                None => true,
+            };
+            if matches_session {
+                return Some(window_id.to_string());
+            }
+            log::info!(
+                "event=gateway_window_id_rebuilt reason=session_mismatch incoming_window_fp={} resolved_session_fp={}",
+                anchor_fingerprint_or_dash(Some(window_id)),
+                anchor_fingerprint_or_dash(normalized_session_id),
+            );
         }
     }
-    resolved_session_id
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|session_id| format!("{session_id}:0"))
+    normalized_session_id.map(|session_id| format!("{session_id}:0"))
 }
 
 fn append_passthrough_codex_headers(
@@ -647,5 +669,36 @@ mod tests {
             Some("thread-parent-c")
         );
         assert_eq!(header_value(&headers, "x-codex-other-limit-name"), None);
+    }
+
+    #[test]
+    fn build_codex_upstream_headers_rebuilds_mismatched_window_id_from_session() {
+        let _guard = crate::test_env_guard();
+        let _ = set_originator("codex_cli_rs_tests").expect("set originator");
+        let _ = set_codex_user_agent_version("0.999.3").expect("set ua version");
+
+        let headers = build_codex_upstream_headers(CodexUpstreamHeaderInput {
+            auth_token: "token-window-fix",
+            chatgpt_account_id: None,
+            incoming_session_id: Some("session-anchor"),
+            incoming_window_id: Some("stale-window-anchor:9"),
+            incoming_client_request_id: Some("request-anchor"),
+            incoming_subagent: None,
+            incoming_beta_features: None,
+            incoming_turn_metadata: None,
+            incoming_parent_thread_id: None,
+            passthrough_codex_headers: &[],
+            fallback_session_id: Some("fallback-anchor"),
+            incoming_turn_state: Some("turn-state-window-fix"),
+            include_turn_state: true,
+            strip_session_affinity: false,
+            has_body: true,
+        });
+
+        assert_eq!(header_value(&headers, "session_id"), Some("session-anchor"));
+        assert_eq!(
+            header_value(&headers, "x-codex-window-id"),
+            Some("session-anchor:0")
+        );
     }
 }

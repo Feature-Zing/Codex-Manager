@@ -86,6 +86,7 @@ async fn proxy_handler(
     request: HttpRequest<Body>,
 ) -> Response<Body> {
     let (parts, body) = request.into_parts();
+    let prefer_raw_errors = crate::gateway::prefers_raw_errors_for_http_headers(&parts.headers);
     let target_url = build_target_url(&state.backend_base_url, &parts.uri);
     let max_body_bytes = crate::gateway::front_proxy_max_body_bytes();
 
@@ -96,13 +97,19 @@ async fn proxy_handler(
         .and_then(|value| value.trim().parse::<u64>().ok())
     {
         if max_body_bytes > 0 && content_length > max_body_bytes as u64 {
-            let message = format!("request body too large: content-length={content_length}");
+            let message = crate::gateway::bilingual_error(
+                "请求体过大",
+                format!("request body too large: content-length={content_length}"),
+            );
             log_proxy_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 target_url.as_str(),
                 message.as_str(),
             );
-            return text_error_response(StatusCode::PAYLOAD_TOO_LARGE, message);
+            return text_error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                crate::gateway::error_message_for_client(prefer_raw_errors, message),
+            );
         }
     }
 
@@ -116,16 +123,22 @@ async fn proxy_handler(
         Ok(bytes) => bytes,
         Err(_) => {
             let message = if max_body_bytes == 0 {
-                "request body too large".to_string()
+                crate::gateway::bilingual_error("请求体过大", "request body too large")
             } else {
-                format!("request body too large: content-length>{max_body_bytes}")
+                crate::gateway::bilingual_error(
+                    "请求体过大",
+                    format!("request body too large: content-length>{max_body_bytes}"),
+                )
             };
             log_proxy_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 target_url.as_str(),
                 message.as_str(),
             );
-            return text_error_response(StatusCode::PAYLOAD_TOO_LARGE, message);
+            return text_error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                crate::gateway::error_message_for_client(prefer_raw_errors, message),
+            );
         }
     };
 
@@ -136,13 +149,19 @@ async fn proxy_handler(
     let upstream = match builder.send().await {
         Ok(response) => response,
         Err(err) => {
-            let message = format!("backend proxy error: {err}");
+            let message = crate::gateway::bilingual_error(
+                "后端代理请求失败",
+                format!("backend proxy error: {err}"),
+            );
             log_proxy_error(
                 StatusCode::BAD_GATEWAY,
                 target_url.as_str(),
                 message.as_str(),
             );
-            return text_error_response(StatusCode::BAD_GATEWAY, message);
+            return text_error_response(
+                StatusCode::BAD_GATEWAY,
+                crate::gateway::error_message_for_client(prefer_raw_errors, message),
+            );
         }
     };
 
@@ -154,13 +173,19 @@ async fn proxy_handler(
     match response_builder.body(Body::from_stream(upstream.bytes_stream())) {
         Ok(response) => response,
         Err(err) => {
-            let message = format!("build response failed: {err}");
+            let message = crate::gateway::bilingual_error(
+                "构建响应失败",
+                format!("build response failed: {err}"),
+            );
             log_proxy_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 target_url.as_str(),
                 message.as_str(),
             );
-            text_error_response(StatusCode::INTERNAL_SERVER_ERROR, message)
+            text_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::gateway::error_message_for_client(prefer_raw_errors, message),
+            )
         }
     }
 }

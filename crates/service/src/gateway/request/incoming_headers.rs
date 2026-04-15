@@ -212,8 +212,7 @@ impl IncomingHeaderSnapshot {
                 }
                 continue;
             }
-            if snapshot.parent_thread_id.is_none()
-                && header.field.equiv("x-codex-parent-thread-id")
+            if snapshot.parent_thread_id.is_none() && header.field.equiv("x-codex-parent-thread-id")
             {
                 let value = header.value.as_str().trim();
                 if !value.is_empty() {

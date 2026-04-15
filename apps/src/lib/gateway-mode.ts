@@ -1,5 +1,5 @@
 export const GATEWAY_MODE_ENV_KEY = "CODEXMANAGER_GATEWAY_MODE";
-export const DEFAULT_GATEWAY_MODE = "enhanced";
+export const DEFAULT_GATEWAY_MODE = "transparent";
 
 export type GatewayMode = "transparent" | "enhanced";
 

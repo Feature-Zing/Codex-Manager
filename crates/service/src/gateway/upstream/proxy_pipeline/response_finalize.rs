@@ -25,8 +25,15 @@ pub(in super::super) fn respond_terminal(
     message: String,
     trace_id: Option<&str>,
 ) -> Result<(), String> {
-    let response =
-        super::super::super::error_response::terminal_text_response(status_code, message, trace_id);
+    let response_message = super::super::super::error_message_for_client(
+        super::super::super::prefers_raw_errors_for_tiny_http_request(&request),
+        message,
+    );
+    let response = super::super::super::error_response::terminal_text_response(
+        status_code,
+        response_message,
+        trace_id,
+    );
     let _ = request.respond(response);
     Ok(())
 }
@@ -251,7 +258,7 @@ pub(super) fn finalize_upstream_response(
             bridge.stream_terminal_error.as_deref(),
             bridge.last_sse_event_type.as_deref(),
             bridge.upstream_content_type.as_deref(),
-            );
+        );
     }
 
     let bridge_ok = bridge.is_ok(client_is_stream);
@@ -269,7 +276,8 @@ pub(super) fn finalize_upstream_response(
     let gateway_error_follow_up = final_error
         .as_deref()
         .map(|error| context.apply_gateway_error_follow_up(account_id, error, has_more_candidates));
-    let gateway_failover = gateway_error_follow_up.is_some_and(|follow_up| follow_up.should_failover);
+    let gateway_failover =
+        gateway_error_follow_up.is_some_and(|follow_up| follow_up.should_failover);
 
     let upstream_stream_failed = client_is_stream
         && (!bridge.stream_terminal_seen || bridge.stream_terminal_error.is_some());
@@ -334,8 +342,13 @@ mod tests {
             Some("upstream hint")
         );
         assert_eq!(
-            derive_final_error(429, Some("last attempt"), None, Some("bridge error".to_string()))
-                .as_deref(),
+            derive_final_error(
+                429,
+                Some("last attempt"),
+                None,
+                Some("bridge error".to_string())
+            )
+            .as_deref(),
             Some("last attempt")
         );
         assert_eq!(
@@ -346,12 +359,30 @@ mod tests {
 
     #[test]
     fn derive_status_for_log_respects_disconnect_delivery_and_bridge_fallbacks() {
-        assert_eq!(derive_status_for_log(200, None, true, false, false, true), 499);
-        assert_eq!(derive_status_for_log(200, Some(207), true, false, false, false), 207);
-        assert_eq!(derive_status_for_log(404, None, true, false, false, false), 404);
-        assert_eq!(derive_status_for_log(200, None, true, true, false, false), 502);
-        assert_eq!(derive_status_for_log(200, None, false, false, false, false), 502);
-        assert_eq!(derive_status_for_log(200, None, true, false, false, false), 200);
+        assert_eq!(
+            derive_status_for_log(200, None, true, false, false, true),
+            499
+        );
+        assert_eq!(
+            derive_status_for_log(200, Some(207), true, false, false, false),
+            207
+        );
+        assert_eq!(
+            derive_status_for_log(404, None, true, false, false, false),
+            404
+        );
+        assert_eq!(
+            derive_status_for_log(200, None, true, true, false, false),
+            502
+        );
+        assert_eq!(
+            derive_status_for_log(200, None, false, false, false, false),
+            502
+        );
+        assert_eq!(
+            derive_status_for_log(200, None, true, false, false, false),
+            200
+        );
     }
 
     #[test]

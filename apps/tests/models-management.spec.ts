@@ -64,6 +64,17 @@ test("models page supports creating and deleting a managed model", async ({ page
       updatedAt: 1_770_000_000,
       input_modalities: ["text", "image"],
     },
+    {
+      slug: "gpt-4.1",
+      display_name: "GPT-4.1",
+      description: "Legacy model",
+      supported_in_api: true,
+      sourceKind: "remote",
+      userEdited: false,
+      sortIndex: 1,
+      updatedAt: 1_760_000_000,
+      input_modalities: ["text"],
+    },
   ];
 
   await page.route("**/api/runtime", async (route) => {
@@ -195,9 +206,19 @@ test("models page supports creating and deleting a managed model", async ({ page
 
   const customRow = page.locator("tr", { hasText: "my-custom-model" });
   await expect(customRow).toBeVisible();
+  await expect(page.locator("tr", { hasText: "gpt-4.1" })).toBeVisible();
 
-  await customRow.getByLabel("模型操作").click();
-  await page.getByRole("menuitem", { name: "删除模型" }).click();
+  await page
+    .locator("tr", { hasText: "my-custom-model" })
+    .getByRole("checkbox")
+    .click();
+  await page
+    .locator("tr", { hasText: "gpt-4.1" })
+    .getByRole("checkbox")
+    .click();
+  await page.getByRole("button", { name: "批量删除模型" }).click();
   await page.getByRole("button", { name: "删除" }).click();
   await expect(customRow).toHaveCount(0);
+  await expect(page.locator("tr", { hasText: "gpt-4.1" })).toHaveCount(0);
+  await expect(page.locator("tr", { hasText: "gpt-5.4" })).toBeVisible();
 });

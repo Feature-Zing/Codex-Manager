@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileUp,
   FolderOpen,
+  Loader2,
   MoreVertical,
   Pin,
   Plus,
@@ -739,9 +740,11 @@ export default function AccountsPage() {
     importByFile,
     importByDirectory,
     exportAccounts,
+    warmupAccounts,
     isRefreshingAccountId,
     isRefreshingAllAccounts,
     isExporting,
+    isWarmingUpAccounts,
     isDeletingMany,
     setPreferredAccount,
     clearPreferredAccount,
@@ -1083,6 +1086,37 @@ export default function AccountsPage() {
       ids: bannedIds,
       count: bannedIds.length,
     });
+  };
+
+  /**
+   * 函数 `handleWarmupAccounts`
+   *
+   * 作者: gaohongshun
+   *
+   * 时间: 2026-04-14
+   *
+   * # 参数
+   * 无
+   *
+   * # 返回
+   * 返回函数执行结果
+   */
+  const handleWarmupAccounts = async () => {
+    const targetIds = effectiveSelectedIds.length > 0 ? effectiveSelectedIds : [];
+    const targetCount = targetIds.length > 0 ? targetIds.length : accounts.length;
+    if (targetCount <= 0) {
+      toast.info(t("当前没有可预热的账号"));
+      return;
+    }
+
+    try {
+      await warmupAccounts({
+        accountIds: targetIds,
+        message: "hi",
+      });
+    } catch {
+      // 中文注释：错误提示已在 hook 内统一处理，这里不重复提示。
+    }
   };
 
   /**
@@ -1438,6 +1472,32 @@ export default function AccountsPage() {
           <div className="hidden min-w-0 lg:block" />
 
           <div className="ml-auto flex shrink-0 items-center gap-2 lg:ml-0 lg:justify-self-end">
+            <Tooltip>
+              <TooltipTrigger render={<span />} className="inline-flex">
+                <Button
+                  variant="outline"
+                  className="glass-card h-10 min-w-[88px] gap-2 rounded-xl px-3"
+                  disabled={
+                    !isServiceReady || isWarmingUpAccounts || accounts.length === 0
+                  }
+                  onClick={() => void handleWarmupAccounts()}
+                >
+                  {isWarmingUpAccounts ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Zap className="h-4 w-4" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {isWarmingUpAccounts ? t("预热中...") : t("预热")}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs whitespace-pre-wrap break-words">
+                {t(
+                  "向选中账号发送 hi 进行预热；如果未选中账号，则默认预热全部账号。",
+                )}
+              </TooltipContent>
+            </Tooltip>
             <DropdownMenu>
               <DropdownMenuTrigger>
                 <Button

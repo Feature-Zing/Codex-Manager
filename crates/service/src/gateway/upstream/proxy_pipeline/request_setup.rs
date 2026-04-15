@@ -11,7 +11,7 @@ pub(in super::super) struct UpstreamRequestSetup {
     pub(in super::super) url_alt: Option<String>,
     pub(in super::super) candidate_count: usize,
     pub(in super::super) account_max_inflight: usize,
-    pub(in super::super) anthropic_has_prompt_cache_key: bool,
+    pub(in super::super) anthropic_has_thread_anchor: bool,
     pub(in super::super) has_sticky_fallback_session: bool,
     pub(in super::super) has_sticky_fallback_conversation: bool,
     pub(in super::super) has_body_encrypted_content: bool,
@@ -50,8 +50,6 @@ pub(in super::super) fn prepare_request_setup(
         super::super::super::request_rewrite::compute_upstream_url(upstream_base.as_str(), path);
     let candidate_count = candidates.len();
     let account_max_inflight = super::super::super::account_max_inflight_limit();
-    let anthropic_has_prompt_cache_key =
-        protocol_type == PROTOCOL_ANTHROPIC_NATIVE && has_prompt_cache_key;
     let conversation_routing =
         super::super::super::conversation_binding::prepare_conversation_routing(
             platform_key_hash,
@@ -59,6 +57,8 @@ pub(in super::super) fn prepare_request_setup(
             conversation_binding,
             candidates,
         );
+    let anthropic_has_thread_anchor = protocol_type == PROTOCOL_ANTHROPIC_NATIVE
+        && (has_prompt_cache_key || conversation_routing.is_some());
     let rotation_plan = super::super::super::conversation_binding::apply_candidate_rotation(
         candidates,
         conversation_routing.as_ref(),
@@ -85,7 +85,7 @@ pub(in super::super) fn prepare_request_setup(
         url_alt,
         candidate_count,
         account_max_inflight,
-        anthropic_has_prompt_cache_key,
+        anthropic_has_thread_anchor,
         has_sticky_fallback_session: false,
         has_sticky_fallback_conversation:
             super::super::header_profile::derive_sticky_conversation_id_from_headers(

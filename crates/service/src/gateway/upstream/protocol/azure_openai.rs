@@ -76,9 +76,13 @@ fn has_api_key_header(headers: &[(HeaderName, HeaderValue)]) -> bool {
 /// # 返回
 /// 无
 fn respond_error(request: Request, status: u16, message: &str, trace_id: Option<&str>) {
+    let response_message = super::super::super::error_message_for_client(
+        super::super::super::prefers_raw_errors_for_tiny_http_request(&request),
+        message,
+    );
     let response = super::super::super::error_response::terminal_text_response(
         status,
-        message.to_string(),
+        response_message,
         trace_id,
     );
     let _ = request.respond(response);

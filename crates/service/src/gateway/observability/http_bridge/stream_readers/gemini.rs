@@ -2,9 +2,8 @@ use super::{
     append_output_text, classify_upstream_stream_read_error, collect_output_text_from_event_fields,
     json, mark_collector_terminal_success, stream_idle_timed_out, stream_idle_timeout_message,
     stream_reader_disconnected_message, stream_wait_timeout,
-    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Map, Mutex,
-    PassthroughSseCollector, Read, ToolNameRestoreMap, UpstreamSseFramePump,
-    UpstreamSseFramePumpItem, Value,
+    upstream_hint_or_stream_incomplete_message, Arc, Cursor, Map, Mutex, PassthroughSseCollector,
+    Read, ToolNameRestoreMap, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
 use crate::gateway::{build_gemini_error_body, GeminiStreamOutputMode};
 use std::collections::BTreeMap;

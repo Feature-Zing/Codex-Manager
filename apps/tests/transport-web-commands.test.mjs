@@ -68,3 +68,10 @@ test("createWebCommandMap 为登录命令补齐 Web 运行壳参数", () => {
     type: "chatgptAuthTokens",
   });
 });
+
+test("createWebCommandMap 为账号预热命令提供 Web RPC 映射", () => {
+  const warmup = commandMap.service_account_warmup;
+  assert.deepEqual(warmup, {
+    rpcMethod: "account/warmup",
+  });
+});

@@ -355,6 +355,33 @@ function resolveDisplayRequestPath(log: RequestLog): string {
 }
 
 /**
+ * 函数 `resolveFriendlyRequestPathLabel`
+ *
+ * 作者: gaohongshun
+ *
+ * 时间: 2026-04-14
+ *
+ * # 参数
+ * - path: 参数 path
+ * - t: 参数 t
+ *
+ * # 返回
+ * 返回函数执行结果
+ */
+function resolveFriendlyRequestPathLabel(
+  path: string,
+  t: TranslateFn,
+): string {
+  const normalized = String(path || "").trim();
+  switch (normalized) {
+    case "/internal/account/warmup":
+      return t("账号预热");
+    default:
+      return normalized;
+  }
+}
+
+/**
  * 函数 `resolveUpstreamDisplay`
  *
  * 作者: gaohongshun
@@ -899,6 +926,7 @@ function AccountKeyInfoCell({
 function RequestRouteInfoCell({ log }: { log: RequestLog }) {
   const { t } = useI18n();
   const displayPath = resolveDisplayRequestPath(log) || "-";
+  const displayPathLabel = resolveFriendlyRequestPathLabel(displayPath, t) || "-";
   const recordedPath = String(log.path || log.requestPath || "").trim();
   const originalPath = String(log.originalPath || "").trim();
   const adaptedPath = String(log.adaptedPath || "").trim();
@@ -915,7 +943,7 @@ function RequestRouteInfoCell({ log }: { log: RequestLog }) {
             <span className="font-bold text-primary">{log.method || "-"}</span>
           </div>
           <span className="max-w-[200px] truncate text-muted-foreground">
-            {displayPath}
+            {displayPathLabel}
           </span>
         </div>
       </TooltipTrigger>
@@ -930,9 +958,15 @@ function RequestRouteInfoCell({ log }: { log: RequestLog }) {
             <div className="font-mono text-[11px]">{log.method || "-"}</div>
           </div>
           <div className="space-y-0.5">
-            <div className="text-[10px] text-background/70">{t("显示地址")}</div>
-            <div className="break-all font-mono text-[11px]">{displayPath}</div>
+            <div className="text-[10px] text-background/70">{t("显示名称")}</div>
+            <div className="break-all text-[11px]">{displayPathLabel}</div>
           </div>
+          {displayPath && displayPathLabel !== displayPath ? (
+            <div className="space-y-0.5">
+              <div className="text-[10px] text-background/70">{t("原始路径")}</div>
+              <div className="break-all font-mono text-[11px]">{displayPath}</div>
+            </div>
+          ) : null}
           {recordedPath && recordedPath !== displayPath ? (
             <div className="space-y-0.5">
               <div className="text-[10px] text-background/70">{t("记录地址")}</div>

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use super::{
     save_persisted_app_setting, set_close_to_tray_on_close_setting, set_codex_cli_guide_dismissed,
     set_env_overrides, set_gateway_account_max_inflight, set_gateway_background_tasks,
-    set_gateway_free_account_max_model, set_gateway_model_forward_rules,
-    set_gateway_originator, set_gateway_residency_requirement, set_gateway_route_strategy,
+    set_gateway_free_account_max_model, set_gateway_model_forward_rules, set_gateway_originator,
+    set_gateway_residency_requirement, set_gateway_route_strategy,
     set_gateway_sse_keepalive_interval_ms, set_gateway_upstream_proxy_url,
     set_gateway_upstream_stream_timeout_ms, set_gateway_user_agent_version,
     set_lightweight_mode_on_close_to_tray_setting, set_saved_service_addr, set_service_bind_mode,

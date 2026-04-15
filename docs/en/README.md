@@ -14,13 +14,11 @@ CodexManager is a local desktop + service-process account pool manager and gatew
 - Local OpenAI-compatible gateway for Codex CLI, Gemini CLI, Claude Code, and third-party tools.
 - Supports account routing, model/profile overrides, and aggregate API upstream relays.
 
-## Latest Changes
+## Recent Commits
 
-- Current latest release: `v0.2.1` (released on 2026-04-12).
-- The model management page is now the canonical model catalog editor: desktop builds overwrite `~/.codex/models_cache.json` automatically after catalog changes, while web deployments expose a `models_cache.json` export action.
-- The catalog now stores and edits richer model metadata such as `display_name`, `description`, `supported_reasoning_levels`, `visibility`, and `supported_in_api`.
-- Web mode now requires the `codexmanager-web` shell with `/api/runtime` and `/api/rpc`; serving only a static frontend is no longer considered a complete deployment.
-- Free accounts without a `refresh_token` no longer hit refresh-token 400 errors during usage refresh.
+- `524834e`: Cleanup pass for repository files.
+- `57d85d8`: Optimized the gateway HTTP bridge and session affinity, including keepalive handling, compression retry fallback, and bridge diagnostics.
+- `43778e4`: Improved `prompt_cache_key` passthrough and tightened account invalidation checks.
 
 ## Feature Overview
 

@@ -18,3 +18,5 @@ pub(crate) mod plan;
 pub(crate) mod status;
 #[path = "account_update.rs"]
 pub(crate) mod update;
+#[path = "account_warmup.rs"]
+pub(crate) mod warmup;

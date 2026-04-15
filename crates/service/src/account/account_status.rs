@@ -198,10 +198,7 @@ pub(crate) fn usage_limit_reason_from_message(message: &str) -> Option<&'static 
     None
 }
 
-pub(crate) fn analyze_gateway_error(
-    err: &str,
-    has_more_candidates: bool,
-) -> GatewayErrorFollowUp {
+pub(crate) fn analyze_gateway_error(err: &str, has_more_candidates: bool) -> GatewayErrorFollowUp {
     let kind = if deactivation_reason_from_message(err).is_some() {
         GatewayErrorKind::Deactivation
     } else if usage_limit_reason_from_message(err).is_some() {
@@ -347,7 +344,7 @@ pub(crate) fn mark_account_unavailable_for_usage_http_error(
         return false;
     };
     match status_code {
-        401 | 403 | 429 => {
+        401 | 403 => {
             let status_reason = format!("usage_http_{status_code}");
             set_account_unavailable_with_reason(storage, account_id, &status_reason)
         }

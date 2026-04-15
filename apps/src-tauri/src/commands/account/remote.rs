@@ -238,6 +238,32 @@ pub async fn service_account_update(
     .await
 }
 
+/// 函数 `service_account_warmup`
+///
+/// 作者: gaohongshun
+///
+/// 时间: 2026-04-14
+///
+/// # 参数
+/// - addr: 参数 addr
+/// - account_ids: 参数 account_ids
+/// - message: 参数 message
+///
+/// # 返回
+/// 返回函数执行结果
+#[tauri::command]
+pub async fn service_account_warmup(
+    addr: Option<String>,
+    account_ids: Vec<String>,
+    message: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let params = serde_json::json!({
+        "accountIds": account_ids,
+        "message": message.unwrap_or_default(),
+    });
+    rpc_call_in_background("account/warmup", addr, Some(params)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::account_update_payload;

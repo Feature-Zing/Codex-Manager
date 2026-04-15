@@ -215,6 +215,19 @@ fn resolve_request_compression(
     )
 }
 
+fn should_retry_transport_without_compression(
+    target_url: &str,
+    request_path: &str,
+    is_stream: bool,
+    compression: RequestCompression,
+) -> bool {
+    compression == RequestCompression::Zstd
+        && is_stream
+        && request_path.starts_with("/v1/responses")
+        && !is_compact_request_path(request_path)
+        && super::super::config::is_chatgpt_backend_base(target_url)
+}
+
 /// 函数 `encode_request_body`
 ///
 /// 作者: gaohongshun
@@ -398,6 +411,17 @@ fn send_upstream_request_with_compression_override(
         incoming_headers.conversation_id(),
         prompt_cache_key.as_deref(),
     );
+    super::super::super::session_affinity::log_outgoing_session_affinity(
+        request_ctx.request_path,
+        account_id,
+        incoming_headers.session_id(),
+        incoming_headers.client_request_id(),
+        incoming_headers.turn_state(),
+        incoming_headers.conversation_id(),
+        prompt_cache_key.as_deref(),
+        request_affinity,
+        strip_session_affinity,
+    );
     let mut upstream_headers = if is_compact_request {
         let header_input = super::super::header_profile::CodexCompactUpstreamHeaderInput {
             auth_token,
@@ -437,6 +461,7 @@ fn send_upstream_request_with_compression_override(
         // 对 localhost/127.0.0.1 强制 close，避免请求落到已失效连接。
         force_connection_close(&mut upstream_headers);
     }
+    let upstream_headers_uncompressed = upstream_headers.clone();
     let request_compression = compression_override.unwrap_or_else(|| {
         resolve_request_compression(target_url, request_ctx.request_path, is_stream)
     });
@@ -446,31 +471,89 @@ fn send_upstream_request_with_compression_override(
         request_compression,
         &mut upstream_headers,
     );
-    let build_request = |http: &reqwest::blocking::Client| {
+    let build_request = |http: &reqwest::blocking::Client,
+                         request_headers: &[(String, String)],
+                         request_body: &Bytes| {
         let mut builder = http.request(method.clone(), target_url);
         if let Some(timeout) =
             super::super::support::deadline::send_timeout(request_deadline, is_stream)
         {
             builder = builder.timeout(timeout);
         }
-        for (name, value) in upstream_headers.iter() {
+        for (name, value) in request_headers.iter() {
             builder = builder.header(name, value);
         }
-        if !body_for_request.is_empty() {
-            builder = builder.body(body_for_request.clone());
+        if !request_body.is_empty() {
+            builder = builder.body(request_body.clone());
         }
         builder
     };
 
-    let result = match build_request(client).send() {
+    let result = match build_request(client, upstream_headers.as_slice(), &body_for_request).send()
+    {
         Ok(resp) => Ok(resp),
         Err(first_err) => {
-            // 中文注释：进程启动后才开启系统代理时，旧单例 client 可能仍走旧网络路径；
-            // 这里用 fresh client 立刻重试一次，避免必须手动重连服务。
             let fresh = super::super::super::fresh_upstream_client_for_account(account.id.as_str());
-            match build_request(&fresh).send() {
-                Ok(resp) => Ok(resp),
-                Err(_) => Err(first_err),
+            if should_retry_transport_without_compression(
+                target_url,
+                request_ctx.request_path,
+                is_stream,
+                request_compression,
+            ) {
+                log::warn!(
+                    "event=gateway_transport_retry_without_compression path={} account_id={} target_url={} first_err={}",
+                    request_ctx.request_path,
+                    account.id,
+                    target_url,
+                    first_err
+                );
+                match build_request(&fresh, upstream_headers_uncompressed.as_slice(), body).send() {
+                    Ok(resp) => {
+                        log::warn!(
+                            "event=gateway_transport_retry_without_compression_succeeded path={} account_id={} target_url={}",
+                            request_ctx.request_path,
+                            account.id,
+                            target_url
+                        );
+                        Ok(resp)
+                    }
+                    Err(second_err) => {
+                        log::warn!(
+                            "event=gateway_transport_retry_without_compression_failed path={} account_id={} target_url={} first_err={} retry_err={}",
+                            request_ctx.request_path,
+                            account.id,
+                            target_url,
+                            first_err,
+                            second_err
+                        );
+                        Err(second_err)
+                    }
+                }
+            } else {
+                // 中文注释：进程启动后才开启系统代理时，旧单例 client 可能仍走旧网络路径；
+                // 这里用 fresh client 立刻重试一次，避免必须手动重连服务。
+                match build_request(&fresh, upstream_headers.as_slice(), &body_for_request).send() {
+                    Ok(resp) => {
+                        log::info!(
+                            "event=gateway_transport_retry_with_fresh_client_succeeded path={} account_id={} target_url={}",
+                            request_ctx.request_path,
+                            account.id,
+                            target_url
+                        );
+                        Ok(resp)
+                    }
+                    Err(second_err) => {
+                        log::warn!(
+                            "event=gateway_transport_retry_with_fresh_client_failed path={} account_id={} target_url={} first_err={} retry_err={}",
+                            request_ctx.request_path,
+                            account.id,
+                            target_url,
+                            first_err,
+                            second_err
+                        );
+                        Err(second_err)
+                    }
+                }
             }
         }
     };
@@ -481,7 +564,10 @@ fn send_upstream_request_with_compression_override(
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_request_body, resolve_request_compression_with_flag, RequestCompression};
+    use super::{
+        encode_request_body, resolve_request_compression_with_flag,
+        should_retry_transport_without_compression, RequestCompression,
+    };
     use bytes::Bytes;
 
     /// 函数 `request_compression_only_applies_to_streaming_chatgpt_responses`
@@ -578,5 +664,39 @@ mod tests {
             value.get("model").and_then(serde_json::Value::as_str),
             Some("gpt-5.4")
         );
+    }
+
+    #[test]
+    fn transport_retry_without_compression_only_targets_streaming_chatgpt_responses() {
+        assert!(should_retry_transport_without_compression(
+            "https://chatgpt.com/backend-api/codex/responses",
+            "/v1/responses",
+            true,
+            RequestCompression::Zstd
+        ));
+        assert!(!should_retry_transport_without_compression(
+            "https://chatgpt.com/backend-api/codex/responses",
+            "/v1/responses/compact",
+            true,
+            RequestCompression::Zstd
+        ));
+        assert!(!should_retry_transport_without_compression(
+            "https://api.openai.com/v1/responses",
+            "/v1/responses",
+            true,
+            RequestCompression::Zstd
+        ));
+        assert!(!should_retry_transport_without_compression(
+            "https://chatgpt.com/backend-api/codex/responses",
+            "/v1/responses",
+            false,
+            RequestCompression::Zstd
+        ));
+        assert!(!should_retry_transport_without_compression(
+            "https://chatgpt.com/backend-api/codex/responses",
+            "/v1/responses",
+            true,
+            RequestCompression::None
+        ));
     }
 }

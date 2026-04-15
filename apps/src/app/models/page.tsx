@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
@@ -70,6 +71,7 @@ export default function ModelsPage() {
     refreshRemote,
     saveModel,
     deleteModel,
+    deleteModels,
     exportCodexCache,
     canExportCodexCache,
     isRefreshing,
@@ -84,14 +86,22 @@ export default function ModelsPage() {
   const [filter, setFilter] = useState<ModelFilter>("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
-  const [deleteSlug, setDeleteSlug] = useState<string | null>(null);
+  const [selectedSlugs, setSelectedSlugs] = useState<string[]>([]);
+  const [deleteSlugs, setDeleteSlugs] = useState<string[]>([]);
 
   useEffect(() => {
     if (isPageActive) return;
     setModalOpen(false);
     setEditingSlug(null);
-    setDeleteSlug(null);
+    setSelectedSlugs([]);
+    setDeleteSlugs([]);
   }, [isPageActive]);
+
+  useEffect(() => {
+    const availableSlugs = new Set(models.map((item) => item.slug));
+    setSelectedSlugs((current) => current.filter((slug) => availableSlugs.has(slug)));
+    setDeleteSlugs((current) => current.filter((slug) => availableSlugs.has(slug)));
+  }, [models]);
 
   const editingModel = useMemo(
     () => models.find((item) => item.slug === editingSlug) || null,
@@ -136,6 +146,14 @@ export default function ModelsPage() {
     });
   }, [filter, models, search]);
 
+  const visibleSelectedSlugs = useMemo(
+    () =>
+      filteredModels
+        .map((model) => model.slug)
+        .filter((slug) => selectedSlugs.includes(slug)),
+    [filteredModels, selectedSlugs]
+  );
+
   const currentFilterLabel = useMemo(() => {
     switch (filter) {
       case "api":
@@ -148,6 +166,37 @@ export default function ModelsPage() {
         return t("全部模型");
     }
   }, [filter, t]);
+
+  const allVisibleSelected =
+    filteredModels.length > 0 && visibleSelectedSlugs.length === filteredModels.length;
+  const deleteTargetCount = deleteSlugs.length;
+  const singleDeleteSlug = deleteTargetCount === 1 ? deleteSlugs[0] : null;
+
+  const toggleSelectSlug = (slug: string) => {
+    setSelectedSlugs((current) =>
+      current.includes(slug)
+        ? current.filter((item) => item !== slug)
+        : [...current, slug]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleSlugs = filteredModels.map((model) => model.slug);
+    setSelectedSlugs((current) => {
+      if (visibleSlugs.length > 0 && visibleSlugs.every((slug) => current.includes(slug))) {
+        return current.filter((slug) => !visibleSlugs.includes(slug));
+      }
+      return Array.from(new Set([...current, ...visibleSlugs]));
+    });
+  };
+
+  const openSingleDeleteDialog = (slug: string) => {
+    setDeleteSlugs([slug]);
+  };
+
+  const openBatchDeleteDialog = () => {
+    setDeleteSlugs(selectedSlugs);
+  };
 
   return (
     <>
@@ -209,6 +258,14 @@ export default function ModelsPage() {
                     </Button>
                   ) : null}
                   <Button
+                    variant="outline"
+                    onClick={openBatchDeleteDialog}
+                    disabled={selectedSlugs.length === 0 || isDeleting}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {t("批量删除模型")}
+                  </Button>
+                  <Button
                     onClick={() => {
                       setEditingSlug(null);
                       setModalOpen(true);
@@ -230,6 +287,11 @@ export default function ModelsPage() {
                 <Badge variant="secondary" className="rounded-full px-3 py-1">
                   {t("共 {count} 条", { count: filteredModels.length })}
                 </Badge>
+                {selectedSlugs.length > 0 ? (
+                  <Badge variant="secondary" className="rounded-full px-3 py-1">
+                    {t("已选 {count} 项", { count: selectedSlugs.length })}
+                  </Badge>
+                ) : null}
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="flex h-10 items-center gap-2 rounded-xl border border-border/60 bg-background/35 px-3">
@@ -278,6 +340,12 @@ export default function ModelsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12 text-center">
+                        <Checkbox
+                          checked={allVisibleSelected}
+                          onCheckedChange={toggleSelectAllVisible}
+                        />
+                      </TableHead>
                       <TableHead>{t("模型")}</TableHead>
                       <TableHead>{t("来源")}</TableHead>
                       <TableHead>{t("API")}</TableHead>
@@ -292,6 +360,12 @@ export default function ModelsPage() {
                   <TableBody>
                     {filteredModels.map((model) => (
                       <TableRow key={model.slug}>
+                        <TableCell className="text-center">
+                          <Checkbox
+                            checked={selectedSlugs.includes(model.slug)}
+                            onCheckedChange={() => toggleSelectSlug(model.slug)}
+                          />
+                        </TableCell>
                         <TableCell className="min-w-[280px]">
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
@@ -362,7 +436,7 @@ export default function ModelsPage() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 variant="destructive"
-                                onClick={() => setDeleteSlug(model.slug)}
+                                onClick={() => openSingleDeleteDialog(model.slug)}
                               >
                                 <Trash2 className="h-4 w-4" />
                                 {t("删除模型")}
@@ -390,28 +464,48 @@ export default function ModelsPage() {
       />
 
       <ConfirmDialog
-        open={Boolean(deleteSlug)}
+        open={deleteTargetCount > 0}
         onOpenChange={(open) => {
           if (!open) {
-            setDeleteSlug(null);
+            setDeleteSlugs([]);
           }
         }}
-        title={t("删除模型")}
+        title={deleteTargetCount > 1 ? t("批量删除模型") : t("删除模型")}
         description={
-          deleteSlug
-            ? t("确定要删除模型 {slug} 吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。", {
-                slug: deleteSlug,
-              })
-            : ""
+          deleteTargetCount > 1
+            ? t(
+                "确定要删除选中的 {count} 个模型吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。",
+                { count: deleteTargetCount }
+              )
+            : singleDeleteSlug
+              ? t("确定要删除模型 {slug} 吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。", {
+                  slug: singleDeleteSlug,
+                })
+              : ""
         }
         confirmText={isDeleting ? t("删除中...") : t("删除")}
         confirmVariant="destructive"
         onConfirm={() => {
-          if (deleteSlug) {
-            void deleteModel(deleteSlug).then((ok) => {
+          if (singleDeleteSlug) {
+            void deleteModel(singleDeleteSlug).then((ok) => {
               if (ok) {
-                setDeleteSlug(null);
+                setSelectedSlugs((current) =>
+                  current.filter((slug) => slug !== singleDeleteSlug)
+                );
+                setDeleteSlugs([]);
               }
+            });
+            return;
+          }
+
+          if (deleteTargetCount > 1) {
+            void deleteModels(deleteSlugs).then((result) => {
+              if (result.deleted.length > 0) {
+                setSelectedSlugs((current) =>
+                  current.filter((slug) => !result.deleted.includes(slug))
+                );
+              }
+              setDeleteSlugs([]);
             });
           }
         }}

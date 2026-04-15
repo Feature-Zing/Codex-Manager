@@ -12,16 +12,11 @@
 - `release/*`：构建、发版、产物和发布流程说明。
 - `docs/plan/*` / `docs/decision/*`：长期治理、实施计划与决策记录。
 
-## 最近更新入口
-- 如果你要看最新发版内容和主分支未发版更新，先看 [CHANGELOG.md](CHANGELOG.md)。
-- 如果你要快速判断“哪个文档最适合当前问题”，先看下面的“文档首页”和“推荐入口”。
+## 最近提交
 
-## 当前版本摘要
-
-- 当前最新版本：`v0.2.1`（2026-04-12）。
-- 模型管理页已经成为统一模型目录入口：桌面端会自动覆盖写入本地 `~/.codex/models_cache.json`，Web 端则提供 `models_cache.json` 导出按钮。
-- Web 管理页面必须通过 `codexmanager-web` 提供的 `/api/runtime` 与 `/api/rpc` 才能正常工作，单独前端静态页面不再视为完整运行方式。
-- free 账号若没有 `refresh_token`，用量刷新会直接跳过 refresh-token 请求，不再触发空 rt 的 400 错误。
+- `524834e`：清理文件。
+- `57d85d8`：优化 gateway HTTP bridge 与 session affinity，补强 keepalive、压缩重试与桥接诊断。
+- `43778e4`：完善 `prompt_cache_key` 透传，并收紧账号失效判定。
 
 ## 赞助商
 
@@ -86,6 +81,7 @@
 | [环境变量与运行配置说明.md](report/环境变量与运行配置说明.md) | 统一查看所有运行配置、默认值与作用 |
 | [FAQ与账号命中规则.md](report/FAQ与账号命中规则.md) | 常见问题、账号命中与日志排障 |
 | [当前网关与Codex官方请求参数对照表.md](report/当前网关与Codex官方请求参数对照表.md) | 当前网关实际出站参数、目标 Codex 参数，以及两者差异的对照表 |
+| [原生Codex线程锚点优先级说明.md](report/原生Codex线程锚点优先级说明.md) | 说明原生 Codex、`prompt_cache_key` 与兼容兜底锚点的优先级规则 |
 | [后台任务账号跳过说明.md](report/后台任务账号跳过说明.md) | 后台任务过滤、禁用账号、workspace 停用原因 |
 | [最小排障手册.md](report/最小排障手册.md) | 快速定位最常见启动与转发问题 |
 | [插件中心最小接入说明.md](report/插件中心最小接入说明.md) | 插件中心最小接入字段、接口和 Rhai 最小函数 |

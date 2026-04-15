@@ -122,8 +122,15 @@ pub(super) fn respond_local_terminal_error(
         super::request_log::RequestLogUsage::default(),
         Some(message.as_str()),
     );
-    let response =
-        super::error_response::terminal_text_response(status_code, message, Some(ctx.trace_id));
+    let response_message = super::error_message_for_client(
+        super::prefers_raw_errors_for_tiny_http_request(&request),
+        message,
+    );
+    let response = super::error_response::terminal_text_response(
+        status_code,
+        response_message,
+        Some(ctx.trace_id),
+    );
     let _ = request.respond(response);
     Ok(())
 }

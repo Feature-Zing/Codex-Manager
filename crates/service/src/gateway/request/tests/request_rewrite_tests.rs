@@ -440,7 +440,7 @@ fn responses_transparent_mode_preserves_native_codex_body_shape() {
 }
 
 #[test]
-fn responses_transparent_mode_skips_inferred_prompt_cache_key() {
+fn responses_transparent_mode_skips_request_rewrite_layer_prompt_cache_inference() {
     let _guard = crate::test_env_guard();
     let _mode_guard = RuntimeEnvGuard::set(GATEWAY_MODE_ENV, "transparent");
     let body = json!({
@@ -1207,7 +1207,10 @@ fn responses_apply_global_model_forward_rules_when_platform_key_not_bound() {
     );
     let value: serde_json::Value = serde_json::from_slice(&out).expect("parse output body");
 
-    assert_eq!(value.get("model").and_then(serde_json::Value::as_str), Some("spark"));
+    assert_eq!(
+        value.get("model").and_then(serde_json::Value::as_str),
+        Some("spark")
+    );
 
     let _ = crate::gateway::set_model_forward_rules(original_rules.as_str());
 }

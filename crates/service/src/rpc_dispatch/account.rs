@@ -2,7 +2,7 @@ use codexmanager_core::rpc::types::{AccountListParams, JsonRpcRequest, JsonRpcRe
 
 use crate::{
     account_cleanup, account_delete, account_delete_many, account_export, account_import,
-    account_list, account_update, auth_account, auth_login, auth_tokens,
+    account_list, account_update, account_warmup, auth_account, auth_login, auth_tokens,
 };
 
 /// 函数 `try_handle`
@@ -76,6 +76,27 @@ pub(super) fn try_handle(req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
                 note.as_deref(),
                 tags.as_deref(),
             ))
+        }
+        "account/warmup" => {
+            let account_ids = req
+                .params
+                .as_ref()
+                .and_then(|params| {
+                    params
+                        .get("accountIds")
+                        .or_else(|| params.get("account_ids"))
+                })
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(|item| item.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let message = first_string_param(req, &["message"]).unwrap_or_default();
+            super::value_or_error(account_warmup::warmup_accounts(account_ids, &message))
         }
         "account/import" => {
             let mut contents = req

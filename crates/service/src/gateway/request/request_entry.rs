@@ -83,9 +83,13 @@ pub(crate) fn handle_gateway_request(mut request: Request) -> Result<(), String>
                         None,
                     );
                 }
+                let response_message = super::error_message_for_client(
+                    super::prefers_raw_errors_for_tiny_http_request(&request),
+                    err.message.as_str(),
+                );
                 let response = super::error_response::terminal_text_response(
                     err.status_code,
-                    err.message,
+                    response_message,
                     Some(trace_id.as_str()),
                 );
                 let _ = request.respond(response);

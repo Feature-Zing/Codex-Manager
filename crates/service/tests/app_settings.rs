@@ -559,6 +559,31 @@ fn app_settings_set_preserves_dark_one_theme() {
 }
 
 #[test]
+fn app_settings_set_preserves_model_forward_rules_case() {
+    with_temp_db(|db_path| {
+        let snapshot = codexmanager_service::app_settings_set(Some(&json!({
+            "modelForwardRules": "Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro"
+        })))
+        .expect("save mixed-case model forward rules");
+
+        assert_eq!(
+            snapshot
+                .get("modelForwardRules")
+                .and_then(|value| value.as_str()),
+            Some("Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro")
+        );
+
+        let storage = Storage::open(db_path).expect("open storage");
+        assert_eq!(
+            storage
+                .get_app_setting(codexmanager_service::APP_SETTING_GATEWAY_MODEL_FORWARD_RULES_KEY)
+                .expect("read model forward rules"),
+            Some("Spark*=GPT-5.4-mini\nClaude-Sonnet-4*=Gemini-2.5-Pro".to_string())
+        );
+    });
+}
+
+#[test]
 fn app_settings_get_defaults_codex_cli_guide_to_false() {
     with_temp_db(|db_path| {
         let storage = Storage::open(db_path).expect("open storage");

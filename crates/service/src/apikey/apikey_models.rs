@@ -190,7 +190,12 @@ pub(crate) fn save_managed_model_catalog_model(
         .map(ToString::to_string);
     let existing_entry = previous_slug
         .as_ref()
-        .and_then(|slug| current_catalog.items.iter().find(|item| item.model.slug == *slug))
+        .and_then(|slug| {
+            current_catalog
+                .items
+                .iter()
+                .find(|item| item.model.slug == *slug)
+        })
         .cloned()
         .or_else(|| {
             current_catalog
@@ -241,11 +246,7 @@ pub(crate) fn save_managed_model_catalog_model(
         updated_at: now_ts(),
     };
 
-    replace_model_catalog_entry(
-        &storage,
-        previous_slug.as_deref(),
-        &next_entry,
-    )?;
+    replace_model_catalog_entry(&storage, previous_slug.as_deref(), &next_entry)?;
     Ok(next_entry)
 }
 
@@ -642,11 +643,7 @@ fn save_managed_model_catalog_rows(
         } else {
             index as i64
         };
-        model_rows.push(model_record_from_model(
-            item,
-            sort_index,
-            item_updated_at,
-        )?);
+        model_rows.push(model_record_from_model(item, sort_index, item_updated_at)?);
         reasoning_rows.extend(reasoning_records_from_model(&item.model, item_updated_at)?);
         additional_speed_tiers.extend(string_records_from_model(
             &item.model.slug,
@@ -817,11 +814,8 @@ fn replace_model_catalog_entry(
     storage
         .upsert_model_catalog_experimental_supported_tools(&experimental_supported_tools)
         .map_err(|e| e.to_string())?;
-    let input_modalities = string_records_from_model(
-        &entry.model.slug,
-        &entry.model.input_modalities,
-        updated_at,
-    );
+    let input_modalities =
+        string_records_from_model(&entry.model.slug, &entry.model.input_modalities, updated_at);
     storage
         .upsert_model_catalog_input_modalities(&input_modalities)
         .map_err(|e| e.to_string())?;
@@ -855,18 +849,10 @@ fn delete_model_catalog_entry(storage: &Storage, slug: &str) -> Result<(), Strin
         )
         .map_err(|e| e.to_string())?;
     storage
-        .delete_model_catalog_string_items(
-            MODEL_CACHE_SCOPE_DEFAULT,
-            slug,
-            "input_modalities",
-        )
+        .delete_model_catalog_string_items(MODEL_CACHE_SCOPE_DEFAULT, slug, "input_modalities")
         .map_err(|e| e.to_string())?;
     storage
-        .delete_model_catalog_string_items(
-            MODEL_CACHE_SCOPE_DEFAULT,
-            slug,
-            "available_in_plans",
-        )
+        .delete_model_catalog_string_items(MODEL_CACHE_SCOPE_DEFAULT, slug, "available_in_plans")
         .map_err(|e| e.to_string())?;
     storage
         .delete_model_catalog_model(MODEL_CACHE_SCOPE_DEFAULT, slug)
@@ -1407,8 +1393,8 @@ mod tests {
         save_managed_model_catalog_with_storage(&storage, &payload)
             .expect("save managed model catalog");
 
-        let response = read_managed_model_catalog_from_storage(&storage)
-            .expect("read managed model catalog");
+        let response =
+            read_managed_model_catalog_from_storage(&storage).expect("read managed model catalog");
         assert_eq!(response.items.len(), 1);
         assert_eq!(response.items[0].model.slug, "gpt-5.4");
         assert_eq!(response.items[0].source_kind, MODEL_SOURCE_KIND_CUSTOM);

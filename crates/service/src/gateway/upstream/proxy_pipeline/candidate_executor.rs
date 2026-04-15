@@ -200,7 +200,7 @@ pub(in super::super) fn execute_candidate_sequence(
         }
 
         let strip_session_affinity =
-            state.strip_session_affinity(&account, idx, setup.anthropic_has_prompt_cache_key);
+            state.strip_session_affinity(&account, idx, setup.anthropic_has_thread_anchor);
         let attempt_thread = super::super::super::conversation_binding::resolve_attempt_thread(
             setup.conversation_routing.as_ref(),
             &account,

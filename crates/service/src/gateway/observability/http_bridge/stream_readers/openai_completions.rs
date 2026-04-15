@@ -4,11 +4,11 @@ use super::{
     convert_openai_completions_stream_chunk, extract_openai_completed_output_text,
     extract_sse_frame_payload, inspect_sse_frame, is_response_completed_event_name,
     map_chunk_has_completion_text, mark_collector_terminal_success, merge_usage,
-    parse_sse_frame_json, should_skip_completion_live_text_event, stream_idle_timed_out,
-    stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
-    update_openai_stream_meta, upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex,
-    OpenAIStreamMeta, PassthroughSseCollector, Read, SseKeepAliveFrame, SseTerminal,
-    UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
+    parse_sse_frame_json, should_emit_keepalive, should_skip_completion_live_text_event,
+    stream_idle_timed_out, stream_idle_timeout_message, stream_reader_disconnected_message,
+    stream_wait_timeout, update_openai_stream_meta, upstream_hint_or_stream_incomplete_message,
+    Arc, Cursor, Mutex, OpenAIStreamMeta, PassthroughSseCollector, Read, SseKeepAliveFrame,
+    SseTerminal, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
 use std::time::Instant;
 
@@ -19,6 +19,7 @@ pub(crate) struct OpenAICompletionsSseReader {
     stream_meta: OpenAIStreamMeta,
     emitted_text_delta: bool,
     last_upstream_activity: Instant,
+    saw_upstream_frame: bool,
     finished: bool,
 }
 
@@ -45,6 +46,7 @@ impl OpenAICompletionsSseReader {
             stream_meta: OpenAIStreamMeta::default(),
             emitted_text_delta: false,
             last_upstream_activity: Instant::now(),
+            saw_upstream_frame: false,
             finished: false,
         }
     }
@@ -202,6 +204,7 @@ impl OpenAICompletionsSseReader {
             {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
                     self.last_upstream_activity = Instant::now();
+                    self.saw_upstream_frame = true;
                     self.update_usage_from_frame(&frame);
                     let mapped = self.map_frame_to_completions_sse(&frame);
                     if !mapped.is_empty() {
@@ -247,7 +250,10 @@ impl OpenAICompletionsSseReader {
                         self.finished = true;
                         return Ok(Vec::new());
                     }
-                    return Ok(SseKeepAliveFrame::OpenAICompletions.bytes().to_vec());
+                    if should_emit_keepalive(self.saw_upstream_frame) {
+                        return Ok(SseKeepAliveFrame::OpenAICompletions.bytes().to_vec());
+                    }
+                    continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     if let Ok(mut collector) = self.usage_collector.lock() {

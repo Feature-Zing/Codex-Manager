@@ -28,6 +28,16 @@ fn should_treat_as_challenge_for_retry(
         || upstream_cf_ray.is_some()
 }
 
+fn should_failover_immediately_for_cloudflare(
+    status: reqwest::StatusCode,
+    upstream_content_type: Option<&reqwest::header::HeaderValue>,
+    upstream_cf_ray: Option<&str>,
+    has_more_candidates: bool,
+) -> bool {
+    has_more_candidates
+        && should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray)
+}
+
 /// 函数 `try_refresh_chatgpt_access_token`
 ///
 /// 作者: gaohongshun
@@ -150,117 +160,6 @@ fn retry_upstream_server_error_once(
             log::warn!(
                 "event=gateway_upstream_server_error_retry_error path={} status=502 account_id={} err={}",
                 request_ctx.request_path,
-                account.id,
-                err
-            );
-            Ok(None)
-        }
-    }
-}
-
-/// 函数 `retry_compact_challenge_with_standard_responses`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-04
-///
-/// # 参数
-/// - client: 参数 client
-/// - method: 参数 method
-/// - upstream_base: 参数 upstream_base
-/// - request_deadline: 参数 request_deadline
-/// - incoming_headers: 参数 incoming_headers
-/// - body: 参数 body
-/// - auth_token: 参数 auth_token
-/// - account: 参数 account
-/// - strip_session_affinity: 参数 strip_session_affinity
-/// - debug: 参数 debug
-/// - status: 参数 status
-/// - upstream_content_type: 参数 upstream_content_type
-///
-/// # 返回
-/// 返回函数执行结果
-#[allow(clippy::too_many_arguments)]
-fn retry_compact_challenge_with_standard_responses(
-    client: &reqwest::blocking::Client,
-    method: &reqwest::Method,
-    upstream_base: &str,
-    request_deadline: Option<Instant>,
-    incoming_headers: &super::super::super::IncomingHeaderSnapshot,
-    body: &Bytes,
-    auth_token: &str,
-    account: &Account,
-    strip_session_affinity: bool,
-    debug: bool,
-    status: reqwest::StatusCode,
-    upstream_content_type: Option<&reqwest::header::HeaderValue>,
-    upstream_cf_ray: Option<&str>,
-) -> Result<Option<reqwest::blocking::Response>, ()> {
-    if !super::super::config::is_chatgpt_backend_base(upstream_base) {
-        return Ok(None);
-    }
-    if !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray) {
-        return Ok(None);
-    }
-
-    let standard_path = "/v1/responses";
-    let (standard_url, _) =
-        crate::gateway::request_rewrite::compute_upstream_url(upstream_base, standard_path);
-    let standard_body = crate::gateway::request_rewrite::apply_request_overrides_with_service_tier(
-        standard_path,
-        body.to_vec(),
-        None,
-        None,
-        None,
-        Some(upstream_base),
-    );
-    let standard_body = Bytes::from(standard_body);
-    let standard_ctx = UpstreamRequestContext {
-        request_path: standard_path,
-    };
-
-    if debug {
-        log::warn!(
-            "event=gateway_compact_challenge_downgrade_retry from_path=/v1/responses/compact to_path={} status={} account_id={} upstream_url={}",
-            standard_path,
-            status.as_u16(),
-            account.id,
-            standard_url
-        );
-    }
-    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
-        account_id: Some(account.id.as_str()),
-        request_path: standard_path,
-        method: method.as_str(),
-        stage: "compact_challenge_downgrade_retry",
-        error_kind: Some("cloudflare_challenge"),
-        upstream_url: Some(standard_url.as_str()),
-        cf_ray: upstream_cf_ray,
-        status_code: Some(status.as_u16()),
-        compression_enabled: false,
-        compression_retry_attempted: false,
-        message: "compact path hit challenge and downgraded to standard responses path",
-        ..GatewayErrorLogInput::default()
-    });
-
-    match super::transport::send_upstream_request(
-        client,
-        method,
-        standard_url.as_str(),
-        request_deadline,
-        standard_ctx,
-        incoming_headers,
-        &standard_body,
-        true,
-        auth_token,
-        account,
-        strip_session_affinity,
-    ) {
-        Ok(resp) => Ok(resp.status().is_success().then_some(resp)),
-        Err(err) => {
-            log::warn!(
-                "event=gateway_compact_challenge_downgrade_retry_error path={} status=502 account_id={} err={}",
-                standard_path,
                 account.id,
                 err
             );
@@ -421,12 +320,32 @@ where
 {
     let mut current_auth_token = auth_token.to_string();
     let mut status = upstream.status();
+    let mut upstream_content_type = upstream.headers().get(reqwest::header::CONTENT_TYPE);
+    let mut upstream_cf_ray = first_header_value(upstream.headers(), "cf-ray");
     if !status.is_success() {
         log::warn!(
             "gateway upstream non-success: status={}, account_id={}",
             status,
             account.id
         );
+    }
+
+    if should_failover_immediately_for_cloudflare(
+        status,
+        upstream_content_type,
+        upstream_cf_ray,
+        has_more_candidates,
+    ) {
+        super::super::super::mark_account_cooldown(
+            &account.id,
+            super::super::super::CooldownReason::Challenge,
+        );
+        log_gateway_result(
+            Some(url),
+            status.as_u16(),
+            Some("upstream challenge blocked"),
+        );
+        return PostRetryFlowDecision::Failover;
     }
 
     if status.as_u16() == 401 {
@@ -456,6 +375,9 @@ where
                     Ok(resp) => {
                         upstream = resp;
                         status = upstream.status();
+                        upstream_content_type =
+                            upstream.headers().get(reqwest::header::CONTENT_TYPE);
+                        upstream_cf_ray = first_header_value(upstream.headers(), "cf-ray");
                     }
                     Err(err) => {
                         log::warn!(
@@ -503,6 +425,8 @@ where
             AltPathRetryResult::Upstream(resp) => {
                 upstream = resp;
                 status = upstream.status();
+                upstream_content_type = upstream.headers().get(reqwest::header::CONTENT_TYPE);
+                upstream_cf_ray = first_header_value(upstream.headers(), "cf-ray");
             }
             AltPathRetryResult::Failover => {
                 return PostRetryFlowDecision::Failover;
@@ -537,6 +461,8 @@ where
         Ok(Some(resp)) => {
             upstream = resp;
             status = upstream.status();
+            upstream_content_type = upstream.headers().get(reqwest::header::CONTENT_TYPE);
+            upstream_cf_ray = first_header_value(upstream.headers(), "cf-ray");
         }
         Ok(None) => {}
         Err(()) => {
@@ -547,38 +473,44 @@ where
         }
     }
 
-    match retry_chatgpt_challenge_without_compression(
-        client,
-        method,
-        upstream_base,
-        url,
-        request_deadline,
-        request_ctx,
-        incoming_headers,
-        body,
-        is_stream,
-        current_auth_token.as_str(),
-        account,
-        strip_session_affinity,
-        debug,
-        status,
-        upstream.headers().get(reqwest::header::CONTENT_TYPE),
-        first_header_value(upstream.headers(), "cf-ray"),
-    ) {
-        Ok(Some(resp)) => {
-            upstream = resp;
-            status = upstream.status();
-        }
-        Ok(None) => {}
-        Err(()) => {
-            return PostRetryFlowDecision::Terminal {
-                status_code: 504,
-                message: "upstream total timeout exceeded".to_string(),
-            };
+    if !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray) {
+        match retry_chatgpt_challenge_without_compression(
+            client,
+            method,
+            upstream_base,
+            url,
+            request_deadline,
+            request_ctx,
+            incoming_headers,
+            body,
+            is_stream,
+            current_auth_token.as_str(),
+            account,
+            strip_session_affinity,
+            debug,
+            status,
+            upstream_content_type,
+            upstream_cf_ray,
+        ) {
+            Ok(Some(resp)) => {
+                upstream = resp;
+                status = upstream.status();
+                upstream_content_type = upstream.headers().get(reqwest::header::CONTENT_TYPE);
+                upstream_cf_ray = first_header_value(upstream.headers(), "cf-ray");
+            }
+            Ok(None) => {}
+            Err(()) => {
+                return PostRetryFlowDecision::Terminal {
+                    status_code: 504,
+                    message: "upstream total timeout exceeded".to_string(),
+                };
+            }
         }
     }
 
-    if !super::super::config::is_chatgpt_backend_base(upstream_base) {
+    if !super::super::config::is_chatgpt_backend_base(upstream_base)
+        && !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray)
+    {
         match retry_stateless_then_optional_alt(
             client,
             method,
@@ -600,6 +532,8 @@ where
             StatelessRetryResult::Upstream(resp) => {
                 upstream = resp;
                 status = upstream.status();
+                upstream_content_type = upstream.headers().get(reqwest::header::CONTENT_TYPE);
+                upstream_cf_ray = first_header_value(upstream.headers(), "cf-ray");
             }
             StatelessRetryResult::Terminal {
                 status_code,
@@ -613,70 +547,47 @@ where
         }
     }
 
-    match retry_compact_challenge_with_standard_responses(
-        client,
-        method,
-        upstream_base,
-        request_deadline,
-        incoming_headers,
-        body,
-        current_auth_token.as_str(),
-        account,
-        strip_session_affinity,
-        debug,
-        status,
-        upstream.headers().get(reqwest::header::CONTENT_TYPE),
-        first_header_value(upstream.headers(), "cf-ray"),
-    ) {
-        Ok(Some(resp)) => {
-            upstream = resp;
-            status = upstream.status();
-        }
-        Ok(None) => {}
-        Err(()) => {
-            return PostRetryFlowDecision::Terminal {
-                status_code: 504,
-                message: "upstream total timeout exceeded".to_string(),
-            };
-        }
-    }
-
-    // 中文注释：主流程 fallback 只覆盖首跳响应，这里补齐“重试后仍 challenge/401/403/429”场景。
-    match handle_openai_fallback_branch(
-        client,
-        storage,
-        method,
-        incoming_headers,
-        body,
-        is_stream,
-        upstream_base,
-        path,
-        upstream_fallback_base,
-        account,
-        token,
-        strip_session_affinity,
-        debug,
-        allow_openai_fallback,
-        status,
-        upstream.headers().get(reqwest::header::CONTENT_TYPE),
-        has_more_candidates,
-        &mut log_gateway_result,
-    ) {
-        FallbackBranchResult::NotTriggered => {}
-        FallbackBranchResult::RespondUpstream(resp) => {
-            return PostRetryFlowDecision::RespondUpstream(resp);
-        }
-        FallbackBranchResult::Failover => {
-            return PostRetryFlowDecision::Failover;
-        }
-        FallbackBranchResult::Terminal {
-            status_code,
-            message,
-        } => {
-            return PostRetryFlowDecision::Terminal {
+    if !(path == "/v1/responses/compact" || path.starts_with("/v1/responses/compact?"))
+        && !should_treat_as_challenge_for_retry(status, upstream_content_type, upstream_cf_ray)
+    {
+        // 中文注释：compact 失败直接返回自身的结构化错误，不再进入通用 fallback。
+        // 主流程 fallback 只覆盖首跳响应，这里补齐“重试后仍 challenge/401/403/429”场景。
+        match handle_openai_fallback_branch(
+            client,
+            storage,
+            method,
+            incoming_headers,
+            body,
+            is_stream,
+            upstream_base,
+            path,
+            upstream_fallback_base,
+            account,
+            token,
+            strip_session_affinity,
+            debug,
+            allow_openai_fallback,
+            status,
+            upstream_content_type,
+            has_more_candidates,
+            &mut log_gateway_result,
+        ) {
+            FallbackBranchResult::NotTriggered => {}
+            FallbackBranchResult::RespondUpstream(resp) => {
+                return PostRetryFlowDecision::RespondUpstream(resp);
+            }
+            FallbackBranchResult::Failover => {
+                return PostRetryFlowDecision::Failover;
+            }
+            FallbackBranchResult::Terminal {
                 status_code,
                 message,
-            };
+            } => {
+                return PostRetryFlowDecision::Terminal {
+                    status_code,
+                    message,
+                };
+            }
         }
     }
 
@@ -684,7 +595,7 @@ where
         storage,
         &account.id,
         status,
-        upstream.headers().get(reqwest::header::CONTENT_TYPE),
+        upstream_content_type,
         url,
         has_more_candidates,
         &mut log_gateway_result,
@@ -857,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn retries_chatgpt_challenge_without_compression_before_fallback() {
+    fn chatgpt_cloudflare_challenge_directly_failovers_without_same_account_retry() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
         let now = now_ts();
@@ -872,41 +783,25 @@ mod tests {
         let hit_count = Arc::new(AtomicUsize::new(0));
         let hit_count_thread = Arc::clone(&hit_count);
         let join = thread::spawn(move || {
-            for index in 0..2 {
-                let mut request = server
-                    .recv_timeout(Duration::from_secs(2))
-                    .expect("receive upstream request")
-                    .expect("request present");
-                let content_encoding = request
-                    .headers()
-                    .iter()
-                    .find(|header| header.field.equiv("Content-Encoding"))
-                    .map(|header| header.value.as_str().to_string());
-                let mut body = Vec::new();
-                std::io::Read::read_to_end(request.as_reader(), &mut body)
-                    .expect("read request body");
-                hit_count_thread.fetch_add(1, Ordering::SeqCst);
-
-                if index == 0 {
-                    let response = Response::from_string(
-                        "<html><title>Just a moment...</title><body>cf</body></html>",
-                    )
-                    .with_status_code(StatusCode(403));
-                    let response = response.with_header(
-                        tiny_http::Header::from_bytes(
-                            &b"Content-Type"[..],
-                            &b"text/html; charset=utf-8"[..],
-                        )
-                        .expect("content type header"),
-                    );
-                    request.respond(response).expect("respond first");
-                } else {
-                    assert_eq!(content_encoding, None);
-                    let response =
-                        Response::from_string("{\"ok\":true}").with_status_code(StatusCode(200));
-                    request.respond(response).expect("respond second");
-                }
-            }
+            let mut request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive upstream request")
+                .expect("request present");
+            let mut body = Vec::new();
+            std::io::Read::read_to_end(request.as_reader(), &mut body).expect("read request body");
+            hit_count_thread.fetch_add(1, Ordering::SeqCst);
+            let response = Response::from_string(
+                "<html><title>Just a moment...</title><body>cf</body></html>",
+            )
+            .with_status_code(StatusCode(403));
+            let response = response.with_header(
+                tiny_http::Header::from_bytes(
+                    &b"Content-Type"[..],
+                    &b"text/html; charset=utf-8"[..],
+                )
+                .expect("content type header"),
+            );
+            request.respond(response).expect("respond first");
         });
 
         let client = reqwest::blocking::Client::new();
@@ -957,15 +852,15 @@ mod tests {
         );
 
         join.join().expect("join server");
-        assert_eq!(hit_count.load(Ordering::SeqCst), 2);
+        assert_eq!(hit_count.load(Ordering::SeqCst), 1);
         match decision {
-            PostRetryFlowDecision::RespondUpstream(resp) => assert_eq!(resp.status(), 200),
+            PostRetryFlowDecision::Failover => {}
             _ => panic!("unexpected decision"),
         }
     }
 
     #[test]
-    fn retries_chatgpt_challenge_without_compression_when_cf_ray_present() {
+    fn cloudflare_cf_ray_directly_failovers_without_same_account_retry() {
         let storage = Storage::open_in_memory().expect("open storage");
         storage.init().expect("init storage");
         let now = now_ts();
@@ -980,36 +875,20 @@ mod tests {
         let hit_count = Arc::new(AtomicUsize::new(0));
         let hit_count_thread = Arc::clone(&hit_count);
         let join = thread::spawn(move || {
-            for index in 0..2 {
-                let mut request = server
-                    .recv_timeout(Duration::from_secs(2))
-                    .expect("receive upstream request")
-                    .expect("request present");
-                let content_encoding = request
-                    .headers()
-                    .iter()
-                    .find(|header| header.field.equiv("Content-Encoding"))
-                    .map(|header| header.value.as_str().to_string());
-                let mut body = Vec::new();
-                std::io::Read::read_to_end(request.as_reader(), &mut body)
-                    .expect("read request body");
-                hit_count_thread.fetch_add(1, Ordering::SeqCst);
-
-                if index == 0 {
-                    let response = Response::from_string("{\"error\":\"challenge\"}")
-                        .with_status_code(StatusCode(403));
-                    let response = response.with_header(
-                        tiny_http::Header::from_bytes(&b"cf-ray"[..], &b"ray-postprocess"[..])
-                            .expect("cf-ray header"),
-                    );
-                    request.respond(response).expect("respond first");
-                } else {
-                    assert_eq!(content_encoding, None);
-                    let response =
-                        Response::from_string("{\"ok\":true}").with_status_code(StatusCode(200));
-                    request.respond(response).expect("respond second");
-                }
-            }
+            let mut request = server
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive upstream request")
+                .expect("request present");
+            let mut body = Vec::new();
+            std::io::Read::read_to_end(request.as_reader(), &mut body).expect("read request body");
+            hit_count_thread.fetch_add(1, Ordering::SeqCst);
+            let response = Response::from_string("{\"error\":\"challenge\"}")
+                .with_status_code(StatusCode(403));
+            let response = response.with_header(
+                tiny_http::Header::from_bytes(&b"cf-ray"[..], &b"ray-postprocess"[..])
+                    .expect("cf-ray header"),
+            );
+            request.respond(response).expect("respond first");
         });
 
         let client = reqwest::blocking::Client::new();
@@ -1060,9 +939,9 @@ mod tests {
         );
 
         join.join().expect("join server");
-        assert_eq!(hit_count.load(Ordering::SeqCst), 2);
+        assert_eq!(hit_count.load(Ordering::SeqCst), 1);
         match decision {
-            PostRetryFlowDecision::RespondUpstream(resp) => assert_eq!(resp.status(), 200),
+            PostRetryFlowDecision::Failover => {}
             _ => panic!("unexpected decision"),
         }
     }

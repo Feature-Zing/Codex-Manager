@@ -113,18 +113,12 @@
 | 系统全部可对接内部接口 | [系统内部接口总表](docs/zh-CN/report/系统内部接口总表.md) |
 | 本地构建、打包、发版、脚本调用 | [构建发布与脚本说明](docs/zh-CN/release/构建发布与脚本说明.md) |
 
-## 最近变更
-  - 当前最新版本：`v0.2.1`（2026-04-12，release）
-  - 模型管理页现在维护统一的结构化模型目录：桌面端会在保存、删除、远端并入和首次成功加载时自动覆盖写入本地 `~/.codex/models_cache.json`，而 Web 端提供 `models_cache.json` 导出按钮供手动放入本地 Codex 目录。
-  - 模型目录现在支持平台侧覆写 `display_name`、`description`、`supported_reasoning_levels`、`visibility`、`supported_in_api` 等关键字段，并已收敛为结构化表存储，便于后续继续扩展模型管理。
-  - Web 版运行方式已收敛为 `codexmanager-web` 壳 + `/api/runtime` / `/api/rpc` 代理；单独跑前端静态页面或普通 dev server 已不再视为完整 Web 部署方式。
-  - free 账号在没有 `refresh_token` 时，用量刷新链路会跳过 refresh-token 请求，不再出现空 rt 触发的 400 错误。
-
-### 近期提交摘要
-- `cb97ac8`：修复 free 账号空 `refresh_token` 时的用量刷新报错。
-- `64a5f6f`：完善模型目录导出与 Web 端引导文案。
-- `a6672aa`：冻结主要列表页的操作列。
-- `5d38260`：补齐模型管理页的桌面友好布局与可见性展示。
+## 最近提交
+- `524834e`：清理文件。
+- `57d85d8`：优化 gateway HTTP bridge 与 session affinity，补强 keepalive、压缩重试与桥接诊断。
+- `43778e4`：完善 `prompt_cache_key` 透传，并收紧账号失效判定。
+- `1a8613a`：默认启用 gateway 强兼容模式。
+- `49b274a`：补充 gateway 模式通用设置。
 
 ## 功能概览
 - 账号池管理：分组、标签、排序、备注、封禁识别与封禁筛选

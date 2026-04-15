@@ -68,6 +68,20 @@ export interface DeleteUnavailableFreeResult {
   deleted?: number;
 }
 
+export interface AccountWarmupItemResult {
+  accountId: string;
+  accountName: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface AccountWarmupResult {
+  requested?: number;
+  succeeded?: number;
+  failed?: number;
+  results?: AccountWarmupItemResult[];
+}
+
 export function readAccountImportResult(payload: unknown): AccountImportResult {
   const source = asRecord(payload);
   const errors = Array.isArray(source?.errors)
@@ -111,6 +125,33 @@ export function readDeleteUnavailableFreeResult(
 ): DeleteUnavailableFreeResult {
   return {
     deleted: readNumberField(payload, "deleted"),
+  };
+}
+
+export function readAccountWarmupResult(payload: unknown): AccountWarmupResult {
+  const source = asRecord(payload);
+  const results = Array.isArray(source?.results)
+    ? source.results
+        .map((item) => {
+          const entry = asRecord(item);
+          if (!entry) {
+            return null;
+          }
+          return {
+            accountId: readStringField(entry, "accountId"),
+            accountName: readStringField(entry, "accountName"),
+            ok: readBooleanField(entry, "ok"),
+            message: readStringField(entry, "message"),
+          };
+        })
+        .filter((item): item is AccountWarmupItemResult => Boolean(item))
+    : [];
+
+  return {
+    requested: readNumberField(payload, "requested"),
+    succeeded: readNumberField(payload, "succeeded"),
+    failed: readNumberField(payload, "failed"),
+    results,
   };
 }
 

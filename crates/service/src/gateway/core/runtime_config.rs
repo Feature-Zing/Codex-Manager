@@ -528,7 +528,7 @@ pub(crate) fn transparent_gateway_mode_enabled() -> bool {
 /// 返回函数执行结果
 pub(crate) fn resolve_forwarded_model(model: &str) -> Option<String> {
     ensure_runtime_config_loaded();
-    let normalized_model = normalize_forward_target_model(model).ok()?;
+    let normalized_model = normalize_model_forward_lookup_model(model)?;
     let rules = crate::lock_utils::read_recover(model_forward_rules_cell(), "model_forward_rules");
     rules
         .iter()
@@ -1005,7 +1005,7 @@ pub(super) fn reload_from_env() {
 
     let gateway_mode = env_non_empty(ENV_GATEWAY_MODE)
         .and_then(|value| parse_gateway_mode(value.as_str()))
-        .unwrap_or(GatewayMode::Enhanced);
+        .unwrap_or(GatewayMode::Transparent);
     let mut cached_gateway_mode =
         crate::lock_utils::write_recover(gateway_mode_cell(), "gateway_mode");
     *cached_gateway_mode = gateway_mode;
@@ -1199,7 +1199,7 @@ fn model_forward_rules_cell() -> &'static RwLock<Vec<ModelForwardRule>> {
 }
 
 fn gateway_mode_cell() -> &'static RwLock<GatewayMode> {
-    GATEWAY_MODE.get_or_init(|| RwLock::new(GatewayMode::Enhanced))
+    GATEWAY_MODE.get_or_init(|| RwLock::new(GatewayMode::Transparent))
 }
 
 /// 函数 `originator_cell`
@@ -1382,7 +1382,7 @@ fn env_bool_or(name: &str, default: bool) -> bool {
 /// # 返回
 /// 返回函数执行结果
 fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
-    let normalized = raw.trim().to_ascii_lowercase();
+    let normalized = raw.trim();
     if normalized.is_empty() {
         return Err("modelForwardRules pattern is required".to_string());
     }
@@ -1395,7 +1395,7 @@ fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
     {
         return Err("modelForwardRules pattern contains unsupported characters".to_string());
     }
-    Ok(normalized)
+    Ok(normalized.to_string())
 }
 
 /// 函数 `normalize_forward_target_model`
@@ -1410,11 +1410,20 @@ fn normalize_model_forward_pattern(raw: &str) -> Result<String, String> {
 /// # 返回
 /// 返回函数执行结果
 fn normalize_forward_target_model(raw: &str) -> Result<String, String> {
-    let normalized = normalize_model_slug(raw)?;
-    if normalized == "auto" {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return Err("modelForwardRules target model is required".to_string());
+    }
+    if normalized.eq_ignore_ascii_case("auto") {
         return Err("modelForwardRules target model cannot be auto".to_string());
     }
-    Ok(normalized)
+    if normalized
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':')))
+    {
+        return Err("modelForwardRules target model contains unsupported characters".to_string());
+    }
+    Ok(normalized.to_string())
 }
 
 /// 函数 `parse_model_forward_rule_line`
@@ -1554,6 +1563,20 @@ fn wildcard_pattern_matches(pattern: &str, value: &str) -> bool {
     true
 }
 
+fn normalize_model_forward_lookup_model(raw: &str) -> Option<String> {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized
+        .chars()
+        .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':')))
+    {
+        return None;
+    }
+    Some(normalized.to_string())
+}
+
 /// 函数 `normalize_model_slug`
 ///
 /// 作者: gaohongshun
@@ -1592,7 +1615,6 @@ fn parse_gateway_mode(raw: &str) -> Option<GatewayMode> {
         _ => None,
     }
 }
-
 
 /// 函数 `normalize_originator`
 ///

@@ -90,11 +90,11 @@ export const EN_MESSAGES: MessageCatalog = {
     "Keep the original Codex request and response shape as much as possible, suitable for standard proxy flows.",
   "对请求参数与响应结构做更多兼容处理，适合兼容性优先场景。":
     "Apply more compatibility handling to request parameters and response structures, suitable when compatibility matters most.",
-  "强兼容模式为默认值。": "Strong compatibility mode is the default.",
-  "在透传模式下会被写成":
+  "透传模式为默认值。": "Passthrough mode is the default.",
+  "在强兼容模式下会被写成":
     "is written as",
-  "以显式关闭额外兼容改写。":
-    "to explicitly disable extra compatibility rewrites.",
+  "以显式启用额外兼容改写。":
+    "to explicitly enable extra compatibility rewrites.",
   界面语言: "Interface language",
   "切换应用界面语言，设置后会立即生效并持久化保存。":
     "Switch the UI language. Changes apply immediately and persist.",
@@ -217,6 +217,18 @@ export const EN_MESSAGES: MessageCatalog = {
   刷新账号用量: "Refresh account usage",
   刷新列表: "Refresh list",
   添加账号: "Add account",
+  预热: "Warm up",
+  "预热中...": "Warming up...",
+  账号预热: "Account warm-up",
+  当前没有可预热的账号: "There are no accounts available for warm-up",
+  "预热完成：共{requested}个账号，成功{count}个":
+    "Warm-up complete: {count} of {requested} accounts succeeded",
+  "预热完成：成功{success}个，失败{failed}个":
+    "Warm-up complete: {success} succeeded, {failed} failed",
+  首个失败: "First failure",
+  账号预热失败: "Account warm-up failed",
+  "向选中账号发送 hi 进行预热；如果未选中账号，则默认预热全部账号。":
+    "Send `hi` to warm up selected accounts; if none are selected, all accounts will be warmed up.",
   排序: "Sort",
   大号优先排序: "Large accounts first",
   小号优先排序: "Small accounts first",
@@ -741,6 +753,7 @@ export const EN_MESSAGES: MessageCatalog = {
     "Built-in curated first; custom sources as needed. Scripts are still powered by Rhai.",
   内置市场: "Built-in market",
   批量删除失败: "Bulk delete failed",
+  批量删除模型: "Bulk delete models",
   平台密钥已创建: "API key created",
   企业私有: "Enterprise private",
   启用中: "Enabling",
@@ -815,6 +828,8 @@ export const EN_MESSAGES: MessageCatalog = {
   已取消导入: "Import canceled",
   已取消优先账号: "Preferred account unset",
   "已删除 {count} 个账号": "Deleted {count} accounts",
+  "已删除 {count} 个模型": "Deleted {count} models",
+  "已选 {count} 项": "Selected {count}",
   已设为优先账号: "Set as preferred account",
   "已收起换算表，点击右侧按钮可重新展开查看。":
     "Conversion table collapsed. Click the button on the right to expand.",
@@ -863,6 +878,10 @@ export const EN_MESSAGES: MessageCatalog = {
   账号已禁用: "Account disabled",
   账号已启用: "Account enabled",
   账号已删除: "Account deleted",
+  "确定要删除选中的 {count} 个模型吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。":
+    "Delete the selected {count} models? A later remote refresh may merge remote models back into the local catalog.",
+  "批量删除完成：成功{success}个，失败{failed}个":
+    "Bulk delete finished: {success} succeeded, {failed} failed",
   账号用量已刷新: "Account usage refreshed",
   "账号长期未登录，refresh 已过期，已改为不可用状态":
     "Account inactive for a long time; refresh expired and marked unavailable.",

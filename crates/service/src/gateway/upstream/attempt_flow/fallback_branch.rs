@@ -1,8 +1,8 @@
+use crate::gateway::upstream::support::failover_policy::{follow_up_action, FollowUpAction};
 use bytes::Bytes;
 use codexmanager_core::storage::{Account, Storage, Token};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
-use crate::gateway::upstream::support::failover_policy::{follow_up_action, FollowUpAction};
 
 const REQUEST_ID_HEADER: &str = "x-request-id";
 const OAI_REQUEST_ID_HEADER: &str = "x-oai-request-id";

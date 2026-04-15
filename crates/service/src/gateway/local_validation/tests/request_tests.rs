@@ -2,6 +2,7 @@ use super::*;
 use crate::gateway::{
     adapt_request_for_protocol, apply_request_overrides_with_service_tier_and_prompt_cache_key,
 };
+use axum::http::{HeaderMap, HeaderValue};
 use codexmanager_core::rpc::types::{ModelInfo, ModelsResponse};
 use codexmanager_core::storage::Storage;
 use serde_json::Value;
@@ -192,6 +193,114 @@ fn openai_key_keeps_empty_overrides() {
     assert_eq!(model, None);
     assert_eq!(reasoning, None);
     assert_eq!(service_tier, None);
+}
+
+fn sample_request_metadata(prompt_cache_key: Option<&str>) -> ParsedRequestMetadata {
+    ParsedRequestMetadata {
+        prompt_cache_key: prompt_cache_key.map(str::to_string),
+        has_prompt_cache_key: prompt_cache_key.is_some(),
+        ..Default::default()
+    }
+}
+
+fn sample_incoming_headers(
+    conversation_id: Option<&str>,
+    turn_state: Option<&str>,
+) -> super::super::super::IncomingHeaderSnapshot {
+    let mut headers = HeaderMap::new();
+    if let Some(conversation_id) = conversation_id {
+        headers.insert(
+            "conversation_id",
+            HeaderValue::from_str(conversation_id).expect("header"),
+        );
+    }
+    if let Some(turn_state) = turn_state {
+        headers.insert(
+            "x-codex-turn-state",
+            HeaderValue::from_str(turn_state).expect("header"),
+        );
+    }
+    super::super::super::IncomingHeaderSnapshot::from_http_headers(&headers)
+}
+
+#[test]
+fn preferred_client_prompt_cache_key_is_used_without_native_anchor() {
+    let incoming_headers = sample_incoming_headers(None, None);
+    let initial_request_meta = sample_request_metadata(Some("client_thread"));
+    let client_request_meta = sample_request_metadata(Some("client_thread"));
+
+    let actual = resolve_preferred_client_prompt_cache_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
+
+    assert_eq!(actual.as_deref(), Some("client_thread"));
+}
+
+#[test]
+fn preferred_client_prompt_cache_key_is_ignored_when_conversation_anchor_exists() {
+    let incoming_headers = sample_incoming_headers(Some("conv_anchor"), None);
+    let initial_request_meta = sample_request_metadata(Some("client_thread"));
+    let client_request_meta = sample_request_metadata(Some("client_thread"));
+
+    let actual = resolve_preferred_client_prompt_cache_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
+
+    assert_eq!(actual, None);
+}
+
+#[test]
+fn preferred_client_prompt_cache_key_is_ignored_when_turn_state_exists() {
+    let incoming_headers = sample_incoming_headers(None, Some("turn_state_anchor"));
+    let initial_request_meta = sample_request_metadata(Some("client_thread"));
+    let client_request_meta = sample_request_metadata(Some("client_thread"));
+
+    let actual = resolve_preferred_client_prompt_cache_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
+
+    assert_eq!(actual, None);
+}
+
+#[test]
+fn preferred_client_prompt_cache_key_is_ignored_even_when_matching_native_anchor() {
+    let incoming_headers = sample_incoming_headers(Some("shared_anchor"), None);
+    let initial_request_meta = sample_request_metadata(Some("shared_anchor"));
+    let client_request_meta = sample_request_metadata(Some("shared_anchor"));
+
+    let actual = resolve_preferred_client_prompt_cache_key(
+        crate::apikey_profile::PROTOCOL_OPENAI_COMPAT,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
+
+    assert_eq!(actual, None);
+}
+
+#[test]
+fn preferred_client_prompt_cache_key_is_disabled_for_anthropic_native_requests() {
+    let incoming_headers = sample_incoming_headers(None, None);
+    let initial_request_meta = sample_request_metadata(Some("client_thread"));
+    let client_request_meta = sample_request_metadata(Some("client_thread"));
+
+    let actual = resolve_preferred_client_prompt_cache_key(
+        crate::apikey_profile::PROTOCOL_ANTHROPIC_NATIVE,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
+
+    assert_eq!(actual, None);
 }
 
 /// 函数 `aggregate_passthrough_applies_model_reasoning_and_service_tier_overrides_without_forcing_log_tier`

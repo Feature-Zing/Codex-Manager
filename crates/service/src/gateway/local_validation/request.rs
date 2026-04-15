@@ -2,6 +2,7 @@ use crate::apikey_profile::{
     is_gemini_generate_content_request_path, resolve_gateway_protocol_type,
     PROTOCOL_ANTHROPIC_NATIVE, PROTOCOL_GEMINI_NATIVE, ROTATION_AGGREGATE_API,
 };
+use crate::gateway::request_helpers::ParsedRequestMetadata;
 use bytes::Bytes;
 use codexmanager_core::storage::ApiKey;
 use reqwest::Method;
@@ -70,16 +71,28 @@ fn ensure_anthropic_model_is_listed(
     }
 
     let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Err(LocalValidationError::new(400, "claude model is required"));
+        return Err(LocalValidationError::new(
+            400,
+            crate::gateway::bilingual_error("Claude 模型必填", "claude model is required"),
+        ));
     };
 
     let models = crate::apikey_models::read_model_options_from_storage(storage).map_err(|err| {
-        LocalValidationError::new(500, format!("model options cache read failed: {err}"))
+        LocalValidationError::new(
+            500,
+            crate::gateway::bilingual_error(
+                "读取模型缓存失败",
+                format!("model options cache read failed: {err}"),
+            ),
+        )
     })?;
     if models.is_empty() {
         return Err(LocalValidationError::new(
             400,
-            format!("claude model not found in model list: {model}"),
+            crate::gateway::bilingual_error(
+                "Claude 模型不在模型列表中",
+                format!("claude model not found in model list: {model}"),
+            ),
         ));
     }
     let found = models
@@ -91,7 +104,10 @@ fn ensure_anthropic_model_is_listed(
     } else {
         Err(LocalValidationError::new(
             400,
-            format!("claude model not found in model list: {model}"),
+            crate::gateway::bilingual_error(
+                "Claude 模型不在模型列表中",
+                format!("claude model not found in model list: {model}"),
+            ),
         ))
     }
 }
@@ -165,6 +181,36 @@ fn normalize_compat_service_tier_for_codex_backend(body: Vec<u8>) -> Vec<u8> {
     }
 
     serde_json::to_vec(&payload).unwrap_or(body)
+}
+
+fn resolve_preferred_client_prompt_cache_key(
+    protocol_type: &str,
+    incoming_headers: &super::super::IncomingHeaderSnapshot,
+    initial_request_meta: &ParsedRequestMetadata,
+    client_request_meta: &ParsedRequestMetadata,
+) -> Option<String> {
+    if protocol_type == PROTOCOL_ANTHROPIC_NATIVE {
+        return None;
+    }
+
+    let preferred = initial_request_meta.prompt_cache_key.clone().or_else(|| {
+        if client_request_meta.has_prompt_cache_key {
+            client_request_meta.prompt_cache_key.clone()
+        } else {
+            None
+        }
+    });
+    let Some(preferred) = preferred else {
+        return None;
+    };
+
+    if incoming_headers.conversation_id().is_some() || incoming_headers.turn_state().is_some() {
+        // 中文注释：原生 Codex 已经提供稳定线程锚点时，prompt_cache_key 不能反客为主；
+        // 否则会和 conversation_id / turn-state 冲突，导致 resume 线程异常。
+        return None;
+    }
+
+    Some(preferred)
 }
 
 /// 函数 `resolve_local_conversation_id`
@@ -281,8 +327,12 @@ pub(super) fn build_local_validation_result(
     let effective_protocol_type =
         resolve_gateway_protocol_type(api_key.protocol_type.as_str(), normalized_path.as_str());
     let request_method = request.method().as_str().to_string();
-    let method = Method::from_bytes(request_method.as_bytes())
-        .map_err(|_| LocalValidationError::new(405, "unsupported method"))?;
+    let method = Method::from_bytes(request_method.as_bytes()).map_err(|_| {
+        LocalValidationError::new(
+            405,
+            crate::gateway::bilingual_error("不支持的请求方法", "unsupported method"),
+        )
+    })?;
     let initial_service_tier_diagnostic = super::super::inspect_service_tier_for_log(&body);
     super::super::log_client_service_tier(
         trace_id.as_str(),
@@ -352,7 +402,12 @@ pub(super) fn build_local_validation_result(
     let original_body = body.clone();
     let adapted =
         super::super::adapt_request_for_protocol(effective_protocol_type, &normalized_path, body)
-            .map_err(|err| LocalValidationError::new(400, err))?;
+            .map_err(|err| {
+            LocalValidationError::new(
+                400,
+                crate::gateway::bilingual_error("请求协议适配失败", err),
+            )
+        })?;
     let mut path = adapted.path;
     let mut response_adapter = adapted.response_adapter;
     let mut gemini_stream_output_mode = adapted.gemini_stream_output_mode;
@@ -382,6 +437,12 @@ pub(super) fn build_local_validation_result(
     let client_request_meta = super::super::parse_request_metadata(&body);
     let (effective_model, effective_reasoning, effective_service_tier) =
         resolve_effective_request_overrides(&api_key);
+    let preferred_prompt_cache_key = resolve_preferred_client_prompt_cache_key(
+        effective_protocol_type,
+        &incoming_headers,
+        &initial_request_meta,
+        &client_request_meta,
+    );
     let local_conversation_id = initial_local_conversation_id.clone();
     let conversation_binding = super::super::conversation_binding::load_conversation_binding(
         &storage,
@@ -403,7 +464,17 @@ pub(super) fn build_local_validation_result(
             normalized_path.as_str(),
             path.as_str(),
         );
-    body = if effective_thread_anchor.is_some() {
+    body = if preferred_prompt_cache_key.is_some() {
+        super::super::apply_request_overrides_with_service_tier_and_prompt_cache_key(
+            &path,
+            body,
+            effective_model.as_deref(),
+            effective_reasoning.as_deref(),
+            effective_service_tier.as_deref(),
+            api_key.upstream_base_url.as_deref(),
+            preferred_prompt_cache_key.as_deref(),
+        )
+    } else if effective_thread_anchor.is_some() {
         super::super::apply_request_overrides_with_service_tier_and_forced_prompt_cache_key(
             &path,
             body,
@@ -436,7 +507,7 @@ pub(super) fn build_local_validation_result(
     let service_tier_for_log = client_request_meta.service_tier;
     let effective_service_tier_for_log = request_meta.service_tier;
     let is_stream = client_request_meta.is_stream;
-    let has_prompt_cache_key = client_request_meta.has_prompt_cache_key;
+    let has_prompt_cache_key = request_meta.has_prompt_cache_key;
     let request_shape = client_request_meta.request_shape;
 
     ensure_anthropic_model_is_listed(&storage, effective_protocol_type, model_for_log.as_deref())?;

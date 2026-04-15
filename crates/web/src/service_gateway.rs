@@ -323,10 +323,7 @@ pub(super) async fn rpc_proxy(
 ///
 /// # 返回
 /// 返回函数执行结果
-fn format_upstream_error_message(
-    service_addr: &str,
-    err: impl std::fmt::Display,
-) -> String {
+fn format_upstream_error_message(service_addr: &str, err: impl std::fmt::Display) -> String {
     let mut message = format!("upstream error: {err}");
     if service_addr.contains("host.docker.internal") {
         message.push_str(

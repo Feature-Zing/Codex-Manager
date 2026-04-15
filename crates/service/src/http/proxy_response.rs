@@ -37,7 +37,7 @@ pub(crate) fn text_response(status: StatusCode, body: impl Into<String>) -> Resp
 /// # 返回
 /// 返回函数执行结果
 pub(crate) fn text_error_response(status: StatusCode, body: impl Into<String>) -> Response<Body> {
-    let body = body.into();
+    let body = crate::gateway::error_message_for_client(false, body);
     let mut response = text_response(status, body.clone());
     response.headers_mut().insert(
         crate::error_codes::ERROR_CODE_HEADER_NAME,

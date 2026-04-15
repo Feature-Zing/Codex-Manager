@@ -43,7 +43,7 @@ pub(super) fn terminal_text_response(
     message: impl Into<String>,
     trace_id: Option<&str>,
 ) -> Response<std::io::Cursor<Vec<u8>>> {
-    let message = message.into();
+    let message = crate::gateway::error_message_for_client(false, message);
     let code = crate::error_codes::code_for_message(message.as_str()).to_string();
     let error_type = match status_code {
         400 => "invalid_request_error",

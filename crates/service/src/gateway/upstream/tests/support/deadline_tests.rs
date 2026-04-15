@@ -75,6 +75,9 @@ fn effective_request_timeout_stream_ignores_stream_only_timeout() {
         effective_request_timeout(Some(Duration::from_secs(120)), None, true),
         Some(Duration::from_secs(120))
     );
-    assert_eq!(effective_request_timeout(None, Some(Duration::from_secs(300)), true), None);
+    assert_eq!(
+        effective_request_timeout(None, Some(Duration::from_secs(300)), true),
+        None
+    );
     assert_eq!(effective_request_timeout(None, None, true), None);
 }

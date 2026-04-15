@@ -293,7 +293,8 @@ fn estimate_cost_matches_openai_gpt4o_and_o3_prices() {
 
 #[test]
 fn estimate_cost_switches_to_long_context_rates_at_270k_boundary() {
-    let gpt54_actual = estimate_cost_usd(Some("gpt-5.4"), Some(270_000), Some(20_000), Some(10_000));
+    let gpt54_actual =
+        estimate_cost_usd(Some("gpt-5.4"), Some(270_000), Some(20_000), Some(10_000));
     assert_close(gpt54_actual, 1.485);
 
     let gpt54_pro_actual = estimate_cost_usd(

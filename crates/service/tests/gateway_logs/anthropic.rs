@@ -650,6 +650,7 @@ fn gateway_claude_failover_cross_workspace_strips_session_affinity_headers() {
         );
     }
     upstream_join.join().expect("join upstream");
+    let captured_debug = format!("{captured:#?}");
 
     let ws_a_stateful = captured
         .iter()
@@ -660,7 +661,7 @@ fn gateway_claude_failover_cross_workspace_strips_session_affinity_headers() {
                 .unwrap_or(false)
                 && req.headers.contains_key("x-codex-turn-state")
         })
-        .expect("expected wsA stateful upstream request");
+        .unwrap_or_else(|| panic!("expected wsA stateful upstream request: {captured_debug}"));
     let ws_b = captured
         .iter()
         .find(|req| {
@@ -843,6 +844,7 @@ fn gateway_claude_failover_same_workspace_preserves_session_affinity_headers() {
         );
     }
     upstream_join.join().expect("join upstream");
+    let captured_debug = format!("{captured:#?}");
 
     let account_2 = captured
         .iter()
@@ -859,7 +861,8 @@ fn gateway_claude_failover_same_workspace_preserves_session_affinity_headers() {
             .headers
             .get("x-codex-turn-state")
             .map(String::as_str),
-        Some("turn_state_same_ws")
+        Some("turn_state_same_ws"),
+        "captured upstream requests: {captured_debug}"
     );
     assert_eq!(
         account_2.headers.get("conversation_id").map(String::as_str),

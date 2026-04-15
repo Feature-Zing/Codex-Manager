@@ -339,20 +339,14 @@ impl Storage {
         &self,
         items: &[ModelCatalogStringItemRecord],
     ) -> rusqlite::Result<()> {
-        self.upsert_model_catalog_string_items(
-            STRING_ITEM_KIND_EXPERIMENTAL_SUPPORTED_TOOLS,
-            items,
-        )
+        self.upsert_model_catalog_string_items(STRING_ITEM_KIND_EXPERIMENTAL_SUPPORTED_TOOLS, items)
     }
 
     pub fn list_model_catalog_experimental_supported_tools(
         &self,
         scope: &str,
     ) -> rusqlite::Result<Vec<ModelCatalogStringItemRecord>> {
-        self.list_model_catalog_string_items(
-            STRING_ITEM_KIND_EXPERIMENTAL_SUPPORTED_TOOLS,
-            scope,
-        )
+        self.list_model_catalog_string_items(STRING_ITEM_KIND_EXPERIMENTAL_SUPPORTED_TOOLS, scope)
     }
 
     pub fn upsert_model_catalog_input_modalities(

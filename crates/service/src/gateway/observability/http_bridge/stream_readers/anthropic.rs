@@ -1,14 +1,18 @@
 use super::{
     append_output_text, collect_output_text_from_event_fields, collect_response_output_text, json,
-    sse_keepalive_interval, Arc, Cursor, Map, Mutex, Read, SseKeepAliveFrame,
-    UpstreamResponseUsage, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
+    should_emit_keepalive, stream_idle_timed_out, stream_wait_timeout, Arc, Cursor, Map, Mutex,
+    Read, SseKeepAliveFrame, UpstreamResponseUsage, UpstreamSseFramePump, UpstreamSseFramePumpItem,
+    Value,
 };
+use std::time::Instant;
 
 pub(crate) struct AnthropicSseReader {
     upstream: UpstreamSseFramePump,
     out_cursor: Cursor<Vec<u8>>,
     state: AnthropicSseState,
     usage_collector: Arc<Mutex<UpstreamResponseUsage>>,
+    last_upstream_activity: Instant,
+    saw_upstream_frame: bool,
 }
 
 #[derive(Default)]
@@ -55,6 +59,8 @@ impl AnthropicSseReader {
             out_cursor: Cursor::new(Vec::new()),
             state,
             usage_collector,
+            last_upstream_activity: Instant::now(),
+            saw_upstream_frame: false,
         }
     }
 
@@ -71,8 +77,13 @@ impl AnthropicSseReader {
     /// 返回函数执行结果
     fn next_chunk(&mut self) -> std::io::Result<Vec<u8>> {
         loop {
-            match self.upstream.recv_timeout(sse_keepalive_interval()) {
+            match self
+                .upstream
+                .recv_timeout(stream_wait_timeout(self.last_upstream_activity))
+            {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
+                    self.last_upstream_activity = Instant::now();
+                    self.saw_upstream_frame = true;
                     let mapped = self.process_sse_frame(&frame);
                     if !mapped.is_empty() {
                         return Ok(mapped);
@@ -80,13 +91,21 @@ impl AnthropicSseReader {
                     continue;
                 }
                 Ok(UpstreamSseFramePumpItem::Eof) => {
+                    self.last_upstream_activity = Instant::now();
                     return Ok(self.finish_stream());
                 }
                 Ok(UpstreamSseFramePumpItem::Error(_err)) => {
+                    self.last_upstream_activity = Instant::now();
                     return Ok(self.finish_stream());
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    return Ok(SseKeepAliveFrame::Anthropic.bytes().to_vec());
+                    if stream_idle_timed_out(self.last_upstream_activity) {
+                        return Ok(self.finish_stream());
+                    }
+                    if should_emit_keepalive(self.saw_upstream_frame) {
+                        return Ok(SseKeepAliveFrame::Anthropic.bytes().to_vec());
+                    }
+                    continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     return Ok(self.finish_stream());

@@ -126,8 +126,10 @@ const GATEWAY_MODE_LABELS: Record<GatewayMode, string> = {
 };
 
 const GATEWAY_MODE_HINTS: Record<GatewayMode, string> = {
-  transparent: "尽量保持原始 Codex 请求与响应形态，适合标准代理链路。",
-  enhanced: "对请求参数与响应结构做更多兼容处理，适合兼容性优先场景。",
+  transparent:
+    "尽量保持原始 Codex 请求与响应形态；不做额外兼容改写，但仍会保留显式或会话层稳定线程锚点。",
+  enhanced:
+    "对请求参数与响应结构做更多兼容处理，并在兼容链路中补齐稳定线程锚点，适合兼容性优先场景。",
 };
 
 const RESIDENCY_REQUIREMENT_LABELS: Record<string, string> = {
@@ -485,7 +487,6 @@ export default function SettingsPage() {
   );
   const lastSyncedSnapshotThemeRef = useRef<string | null>(null);
   const lastSyncedAppearancePresetRef = useRef<string | null>(null);
-  const autoUpdateCheckedRef = useRef(false);
   const manualUpdateCheckPendingRef = useRef(false);
   const [activeTab, setActiveTab] = useState<SettingsTab>(
     readInitialSettingsTab,
@@ -800,18 +801,6 @@ export default function SettingsPage() {
       window.cancelAnimationFrame(frameId);
     };
   }, [isPageActive]);
-
-  useEffect(() => {
-    if (
-      !isDesktopRuntime ||
-      !snapshot?.updateAutoCheck ||
-      autoUpdateCheckedRef.current
-    ) {
-      return;
-    }
-    autoUpdateCheckedRef.current = true;
-    checkUpdate.mutate({ silent: true });
-  }, [checkUpdate, isDesktopRuntime, snapshot?.updateAutoCheck]);
 
   /**
    * 函数 `handleOpenReleasePage`
@@ -1531,9 +1520,9 @@ export default function SettingsPage() {
               </div>
 
               <p className="text-[10px] text-muted-foreground">
-                {t("强兼容模式为默认值。")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
-                {t("在透传模式下会被写成")} <code>transparent</code>{" "}
-                {t("以显式关闭额外兼容改写。")}
+                {t("透传模式为默认值。")} <code>{GATEWAY_MODE_ENV_KEY}</code>{" "}
+                {t("在强兼容模式下会被写成")} <code>enhanced</code>{" "}
+                {t("以显式启用额外兼容改写。")}
               </p>
             </CardContent>
           </Card>
@@ -1547,20 +1536,6 @@ export default function SettingsPage() {
               <CardDescription>{t("控制应用启动和窗口行为")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>{t("自动检查更新")}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t("启动时自动检测新版本")}
-                  </p>
-                </div>
-                <Switch
-                  checked={snapshot.updateAutoCheck}
-                  onCheckedChange={(value) =>
-                    updateSettings.mutate({ updateAutoCheck: value })
-                  }
-                />
-              </div>
               <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-background/45 p-4 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-1">
                   <Label>{updateActionLabel}</Label>

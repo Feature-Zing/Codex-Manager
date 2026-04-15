@@ -4,7 +4,7 @@ use super::{
     convert_openai_chat_stream_chunk_with_tool_name_restore_map,
     extract_openai_completed_output_text, extract_sse_frame_payload, inspect_sse_frame,
     is_response_completed_event_name, map_chunk_has_chat_text, mark_collector_terminal_success,
-    merge_usage, normalize_chat_chunk_delta_role, parse_sse_frame_json,
+    merge_usage, normalize_chat_chunk_delta_role, parse_sse_frame_json, should_emit_keepalive,
     should_skip_chat_live_text_event, stream_idle_timed_out, stream_idle_timeout_message,
     stream_reader_disconnected_message, stream_wait_timeout, update_openai_stream_meta,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, OpenAIStreamMeta,
@@ -22,6 +22,7 @@ pub(crate) struct OpenAIChatCompletionsSseReader {
     emitted_text_delta: bool,
     emitted_assistant_role: bool,
     last_upstream_activity: Instant,
+    saw_upstream_frame: bool,
     finished: bool,
 }
 
@@ -51,6 +52,7 @@ impl OpenAIChatCompletionsSseReader {
             emitted_text_delta: false,
             emitted_assistant_role: false,
             last_upstream_activity: Instant::now(),
+            saw_upstream_frame: false,
             finished: false,
         }
     }
@@ -217,6 +219,7 @@ impl OpenAIChatCompletionsSseReader {
             {
                 Ok(UpstreamSseFramePumpItem::Frame(frame)) => {
                     self.last_upstream_activity = Instant::now();
+                    self.saw_upstream_frame = true;
                     self.update_usage_from_frame(&frame);
                     let mapped = self.map_frame_to_chat_completions_sse(&frame);
                     if !mapped.is_empty() {
@@ -262,7 +265,10 @@ impl OpenAIChatCompletionsSseReader {
                         self.finished = true;
                         return Ok(Vec::new());
                     }
-                    return Ok(SseKeepAliveFrame::OpenAIChatCompletions.bytes().to_vec());
+                    if should_emit_keepalive(self.saw_upstream_frame) {
+                        return Ok(SseKeepAliveFrame::OpenAIChatCompletions.bytes().to_vec());
+                    }
+                    continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     if let Ok(mut collector) = self.usage_collector.lock() {

@@ -417,7 +417,7 @@ fn build_invalid_compact_success_message(
 ///
 /// # 返回
 /// 返回函数执行结果
-fn compact_non_success_body_should_be_normalized(
+fn non_success_body_should_be_normalized(
     status_code: u16,
     content_type: Option<&str>,
     body: &[u8],
@@ -445,24 +445,23 @@ fn compact_non_success_body_should_be_normalized(
     body_looks_like_cloudflare_challenge(status_code, body) || body_looks_like_html(body)
 }
 
-/// 函数 `build_compact_non_success_message`
-///
-/// 作者: gaohongshun
-///
-/// 时间: 2026-04-02
-///
-/// # 参数
-/// - status_code: 参数 status_code
-/// - content_type: 参数 content_type
-/// - body: 参数 body
-/// - request_id: 参数 request_id
-/// - cf_ray: 参数 cf_ray
-/// - auth_error: 参数 auth_error
-/// - identity_error_code: 参数 identity_error_code
-///
-/// # 返回
-/// 返回函数执行结果
-fn build_compact_non_success_message(
+fn compact_non_success_body_should_be_normalized(
+    status_code: u16,
+    content_type: Option<&str>,
+    body: &[u8],
+    auth_error: Option<&str>,
+    identity_error_code: Option<&str>,
+) -> bool {
+    non_success_body_should_be_normalized(
+        status_code,
+        content_type,
+        body,
+        auth_error,
+        identity_error_code,
+    )
+}
+
+fn build_passthrough_non_success_message(
     status_code: u16,
     content_type: Option<&str>,
     body: &[u8],
@@ -479,23 +478,9 @@ fn build_compact_non_success_message(
         auth_error,
         identity_error_code,
     );
-    if let Ok(value) = serde_json::from_slice::<Value>(body) {
-        if let Some(message) = extract_error_message_from_json(&value) {
-            return format!(
-                "upstream compact request failed: {message}{}",
-                compact_debug_suffix(
-                    Some(kind),
-                    request_id,
-                    cf_ray,
-                    auth_error,
-                    identity_error_code
-                )
-            );
-        }
-    }
     if let Some(hint) = extract_error_hint_from_body(status_code, body) {
         return format!(
-            "upstream compact request failed: {hint}{}",
+            "upstream server error: {hint}{}",
             compact_debug_suffix(
                 Some(kind),
                 request_id,
@@ -506,7 +491,7 @@ fn build_compact_non_success_message(
         );
     }
     format!(
-        "upstream compact request failed: status={status_code}{}",
+        "upstream server error: status={status_code}{}",
         compact_debug_suffix(
             Some(kind),
             request_id,
@@ -543,9 +528,13 @@ fn respond_synthesized_compact_error_body(
     cf_ray: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
+    let response_message = crate::gateway::error_message_for_client(
+        crate::gateway::prefers_raw_errors_for_tiny_http_request(&request),
+        message.as_str(),
+    );
     let response = crate::gateway::error_response::terminal_text_response(
         status_code,
-        message.as_str(),
+        response_message,
         trace_id,
     );
     let delivery_error = request.respond(response).err().map(|err| err.to_string());
@@ -598,6 +587,33 @@ fn with_bridge_debug_meta(
     result.upstream_content_type = upstream_content_type.clone();
     result.last_sse_event_type = last_sse_event_type;
     result
+}
+
+fn log_bridge_stream_diagnostics(
+    response_adapter: ResponseAdapter,
+    request_path: &str,
+    result: &UpstreamResponseBridgeResult,
+) {
+    if result.delivery_error.is_none()
+        && result.stream_terminal_seen
+        && result.stream_terminal_error.is_none()
+    {
+        return;
+    }
+
+    log::warn!(
+        "event=gateway_bridge_stream_diagnostics adapter={:?} path={} stream_terminal_seen={} stream_terminal_error={} delivery_error={} upstream_error_hint={} last_sse_event_type={} upstream_request_id={} upstream_cf_ray={} upstream_content_type={}",
+        response_adapter,
+        request_path,
+        if result.stream_terminal_seen { "true" } else { "false" },
+        result.stream_terminal_error.as_deref().unwrap_or("-"),
+        result.delivery_error.as_deref().unwrap_or("-"),
+        result.upstream_error_hint.as_deref().unwrap_or("-"),
+        result.last_sse_event_type.as_deref().unwrap_or("-"),
+        result.upstream_request_id.as_deref().unwrap_or("-"),
+        result.upstream_cf_ray.as_deref().unwrap_or("-"),
+        result.upstream_content_type.as_deref().unwrap_or("-"),
+    );
 }
 
 /// 函数 `respond_invalid_compact_success_body`
@@ -685,6 +701,7 @@ fn respond_invalid_compact_non_success_body(
     identity_error_code: Option<&str>,
     trace_id: Option<&str>,
 ) -> UpstreamResponseBridgeResult {
+    let gateway_status_code = 502;
     let request_method = request.method().as_str().to_string();
     let request_path = request.url().to_string();
     let error_kind = classify_compact_non_success_kind(
@@ -695,7 +712,7 @@ fn respond_invalid_compact_non_success_body(
         auth_error,
         identity_error_code,
     );
-    let message = build_compact_non_success_message(
+    let message = build_passthrough_non_success_message(
         status_code,
         content_type,
         body,
@@ -711,7 +728,7 @@ fn respond_invalid_compact_non_success_body(
         stage: "compact_bridge_non_success",
         error_kind: Some(error_kind),
         cf_ray,
-        status_code: Some(status_code),
+        status_code: Some(gateway_status_code),
         compression_enabled: false,
         compression_retry_attempted: false,
         message: message.as_str(),
@@ -721,12 +738,69 @@ fn respond_invalid_compact_non_success_body(
     with_bridge_debug_meta(
         respond_synthesized_compact_error_body(
             request,
-            status_code,
+            gateway_status_code,
             usage,
             message,
             request_id,
             cf_ray,
             trace_id,
+        ),
+        &request_id.map(str::to_string),
+        &cf_ray.map(str::to_string),
+        &auth_error.map(str::to_string),
+        &identity_error_code.map(str::to_string),
+        &Some("application/json".to_string()),
+        None,
+    )
+}
+
+fn respond_normalized_passthrough_non_success_body(
+    request: Request,
+    usage: UpstreamResponseUsage,
+    body: &[u8],
+    content_type: Option<&str>,
+    request_id: Option<&str>,
+    cf_ray: Option<&str>,
+    auth_error: Option<&str>,
+    identity_error_code: Option<&str>,
+    trace_id: Option<&str>,
+) -> UpstreamResponseBridgeResult {
+    let request_method = request.method().as_str().to_string();
+    let request_path = request.url().to_string();
+    let error_kind = classify_compact_non_success_kind(
+        502,
+        content_type,
+        body,
+        cf_ray,
+        auth_error,
+        identity_error_code,
+    );
+    let message = build_passthrough_non_success_message(
+        502,
+        content_type,
+        body,
+        request_id,
+        cf_ray,
+        auth_error,
+        identity_error_code,
+    );
+    crate::gateway::write_gateway_error_log(GatewayErrorLogInput {
+        trace_id,
+        request_path: request_path.as_str(),
+        method: request_method.as_str(),
+        stage: "passthrough_bridge_non_success",
+        error_kind: Some(error_kind),
+        cf_ray,
+        status_code: Some(502),
+        compression_enabled: false,
+        compression_retry_attempted: false,
+        message: message.as_str(),
+        ..GatewayErrorLogInput::default()
+    });
+
+    with_bridge_debug_meta(
+        respond_synthesized_compact_error_body(
+            request, 502, usage, message, request_id, cf_ray, trace_id,
         ),
         &request_id.map(str::to_string),
         &cf_ray.map(str::to_string),
@@ -905,6 +979,27 @@ pub(crate) fn respond_with_upstream(
                             trace_id,
                         ));
                     }
+                    if status.0 >= 400
+                        && non_success_body_should_be_normalized(
+                            status.0,
+                            upstream_content_type.as_deref(),
+                            body.as_ref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                        )
+                    {
+                        return Ok(respond_normalized_passthrough_non_success_body(
+                            request,
+                            usage,
+                            body.as_ref(),
+                            upstream_content_type.as_deref(),
+                            upstream_request_id.as_deref(),
+                            upstream_cf_ray.as_deref(),
+                            upstream_auth_error.as_deref(),
+                            upstream_identity_error_code.as_deref(),
+                            trace_id,
+                        ));
+                    }
                     let len = Some(body.len());
                     let response =
                         Response::new(status, headers, std::io::Cursor::new(body), len, None);
@@ -971,6 +1066,27 @@ pub(crate) fn respond_with_upstream(
                     return Ok(respond_invalid_compact_non_success_body(
                         request,
                         status.0,
+                        usage,
+                        upstream_body.as_ref(),
+                        upstream_content_type.as_deref(),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                        trace_id,
+                    ));
+                }
+                if status.0 >= 400
+                    && non_success_body_should_be_normalized(
+                        status.0,
+                        upstream_content_type.as_deref(),
+                        upstream_body.as_ref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                    )
+                {
+                    return Ok(respond_normalized_passthrough_non_success_body(
+                        request,
                         usage,
                         upstream_body.as_ref(),
                         upstream_content_type.as_deref(),
@@ -1060,6 +1176,25 @@ pub(crate) fn respond_with_upstream(
                 } else {
                     UpstreamResponseUsage::default()
                 };
+                if non_success_body_should_be_normalized(
+                    status.0,
+                    upstream_content_type.as_deref(),
+                    upstream_body.as_ref(),
+                    upstream_auth_error.as_deref(),
+                    upstream_identity_error_code.as_deref(),
+                ) {
+                    return Ok(respond_normalized_passthrough_non_success_body(
+                        request,
+                        usage,
+                        upstream_body.as_ref(),
+                        upstream_content_type.as_deref(),
+                        upstream_request_id.as_deref(),
+                        upstream_cf_ray.as_deref(),
+                        upstream_auth_error.as_deref(),
+                        upstream_identity_error_code.as_deref(),
+                        trace_id,
+                    ));
+                }
                 let upstream_error_hint = with_upstream_debug_suffix(
                     extract_error_hint_from_body(status.0, upstream_body.as_ref()),
                     None,
@@ -1120,7 +1255,7 @@ pub(crate) fn respond_with_upstream(
                     .map(|guard| guard.clone())
                     .unwrap_or_default();
                 let last_sse_event_type = collector.last_event_type.clone();
-                return Ok(with_bridge_debug_meta(
+                let result = with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
                         stream_terminal_seen: collector.saw_terminal,
@@ -1148,7 +1283,9 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     last_sse_event_type,
-                ));
+                );
+                log_bridge_stream_diagnostics(response_adapter, request_path, &result);
+                return Ok(result);
             }
             let len = upstream.content_length().map(|v| v as usize);
             let response = Response::new(status, headers, upstream, len, None);
@@ -1269,7 +1406,7 @@ pub(crate) fn respond_with_upstream(
                         collector.usage.output_tokens
                     );
                 }
-                return Ok(with_bridge_debug_meta(
+                let result = with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
                         stream_terminal_seen: collector.saw_terminal,
@@ -1290,7 +1427,9 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     last_sse_event_type,
-                ));
+                );
+                log_bridge_stream_diagnostics(response_adapter, request_path, &result);
+                return Ok(result);
             }
 
             let upstream_body = upstream
@@ -1457,11 +1596,7 @@ pub(crate) fn respond_with_upstream(
                 let response = Response::new(
                     status,
                     headers,
-                    AnthropicSseReader::new(
-                        upstream,
-                        Arc::clone(&usage_collector),
-                        fallback_model,
-                    ),
+                    AnthropicSseReader::new(upstream, Arc::clone(&usage_collector), fallback_model),
                     None,
                     None,
                 );
@@ -1536,7 +1671,7 @@ pub(crate) fn respond_with_upstream(
                     .map(|guard| guard.clone())
                     .unwrap_or_default();
                 let last_sse_event_type = collector.last_event_type.clone();
-                return Ok(with_bridge_debug_meta(
+                let result = with_bridge_debug_meta(
                     UpstreamResponseBridgeResult {
                         usage: collector.usage,
                         stream_terminal_seen: collector.saw_terminal,
@@ -1557,7 +1692,9 @@ pub(crate) fn respond_with_upstream(
                     &upstream_identity_error_code,
                     &upstream_content_type,
                     last_sse_event_type,
-                ));
+                );
+                log_bridge_stream_diagnostics(response_adapter, request_path, &result);
+                return Ok(result);
             }
 
             let upstream_body = upstream

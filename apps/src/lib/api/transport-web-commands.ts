@@ -249,6 +249,7 @@ export function createWebCommandMap(
       direct: (params, options) =>
         exportAccountsViaBrowser(postWebRpc, asRecord(params), options),
     },
+    service_account_warmup: { rpcMethod: "account/warmup" },
     service_usage_read: { rpcMethod: "account/usage/read" },
     service_usage_list: { rpcMethod: "account/usage/list" },
     service_usage_refresh: { rpcMethod: "account/usage/refresh" },

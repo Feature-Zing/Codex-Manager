@@ -16,10 +16,7 @@ use super::{
 /// 无
 #[test]
 fn follow_up_action_only_failovers_when_candidates_remain() {
-    assert_eq!(
-        follow_up_action(true, true),
-        FollowUpAction::Failover
-    );
+    assert_eq!(follow_up_action(true, true), FollowUpAction::Failover);
     assert_eq!(
         follow_up_action(true, false),
         FollowUpAction::RespondUpstream
