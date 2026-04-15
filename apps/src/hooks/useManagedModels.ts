@@ -19,6 +19,11 @@ import { ManagedModelCatalog } from "@/types";
 
 const MANAGED_MODEL_QUERY_KEY = ["managed-model-catalog"];
 
+type BatchDeleteManagedModelsResult = {
+  deleted: string[];
+  failed: Array<{ slug: string; reason: string }>;
+};
+
 export function useManagedModels() {
   const queryClient = useQueryClient();
   const { t } = useI18n();
@@ -188,6 +193,63 @@ export function useManagedModels() {
     },
   });
 
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (slugs: string[]): Promise<BatchDeleteManagedModelsResult> => {
+      const normalizedSlugs = Array.from(
+        new Set(
+          slugs
+            .map((slug) => String(slug || "").trim())
+            .filter(Boolean)
+        )
+      );
+      const deleted: string[] = [];
+      const failed: Array<{ slug: string; reason: string }> = [];
+
+      for (const slug of normalizedSlugs) {
+        try {
+          await accountClient.deleteManagedModel(slug);
+          deleted.push(slug);
+        } catch (error) {
+          failed.push({
+            slug,
+            reason: getAppErrorMessage(error),
+          });
+        }
+      }
+
+      return {
+        deleted,
+        failed,
+      };
+    },
+    onSuccess: async (result) => {
+      const catalog = await reloadManagedCatalog();
+      const cacheSyncError = await syncCatalogToCodexCache(catalog);
+      await invalidateAll();
+
+      if (cacheSyncError) {
+        toast.error(`${t("模型已删除，但同步 Codex 模型缓存失败")}: ${cacheSyncError}`);
+      } else if (result.deleted.length > 0 && result.failed.length === 0) {
+        toast.success(t("已删除 {count} 个模型", { count: result.deleted.length }));
+      } else if (result.deleted.length > 0) {
+        toast.warning(
+          t("批量删除完成：成功{success}个，失败{failed}个", {
+            success: result.deleted.length,
+            failed: result.failed.length,
+          })
+        );
+      } else if (result.failed.length > 0) {
+        const firstFailed = result.failed[0];
+        toast.error(
+          `${t("批量删除失败")}: ${firstFailed.slug} - ${firstFailed.reason}`
+        );
+      }
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("批量删除失败")}: ${getAppErrorMessage(error)}`);
+    },
+  });
+
   const exportMutation = useMutation({
     mutationFn: async () => {
       if (!isServiceReady) {
@@ -273,6 +335,12 @@ export function useManagedModels() {
       await deleteMutation.mutateAsync(slug);
       return true;
     },
+    deleteModels: async (slugs: string[]) => {
+      if (!ensureServiceReady("批量删除模型")) {
+        return { deleted: [], failed: [] };
+      }
+      return batchDeleteMutation.mutateAsync(slugs);
+    },
     exportCodexCache: async () => {
       if (!ensureServiceReady("导出模型目录")) return false;
       await exportMutation.mutateAsync();
@@ -280,7 +348,7 @@ export function useManagedModels() {
     },
     isRefreshing: refreshMutation.isPending,
     isSaving: saveMutation.isPending,
-    isDeleting: deleteMutation.isPending,
+    isDeleting: deleteMutation.isPending || batchDeleteMutation.isPending,
     isExporting: exportMutation.isPending,
     canExportCodexCache:
       !isDesktopRuntime && isServiceReady && Boolean(query.data?.items?.length),

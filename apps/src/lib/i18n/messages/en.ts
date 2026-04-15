@@ -753,6 +753,7 @@ export const EN_MESSAGES: MessageCatalog = {
     "Built-in curated first; custom sources as needed. Scripts are still powered by Rhai.",
   内置市场: "Built-in market",
   批量删除失败: "Bulk delete failed",
+  批量删除模型: "Bulk delete models",
   平台密钥已创建: "API key created",
   企业私有: "Enterprise private",
   启用中: "Enabling",
@@ -827,6 +828,8 @@ export const EN_MESSAGES: MessageCatalog = {
   已取消导入: "Import canceled",
   已取消优先账号: "Preferred account unset",
   "已删除 {count} 个账号": "Deleted {count} accounts",
+  "已删除 {count} 个模型": "Deleted {count} models",
+  "已选 {count} 项": "Selected {count}",
   已设为优先账号: "Set as preferred account",
   "已收起换算表，点击右侧按钮可重新展开查看。":
     "Conversion table collapsed. Click the button on the right to expand.",
@@ -875,6 +878,10 @@ export const EN_MESSAGES: MessageCatalog = {
   账号已禁用: "Account disabled",
   账号已启用: "Account enabled",
   账号已删除: "Account deleted",
+  "确定要删除选中的 {count} 个模型吗？如果后续执行远端刷新，远端模型可能会再次并入本地目录。":
+    "Delete the selected {count} models? A later remote refresh may merge remote models back into the local catalog.",
+  "批量删除完成：成功{success}个，失败{failed}个":
+    "Bulk delete finished: {success} succeeded, {failed} failed",
   账号用量已刷新: "Account usage refreshed",
   "账号长期未登录，refresh 已过期，已改为不可用状态":
     "Account inactive for a long time; refresh expired and marked unavailable.",
