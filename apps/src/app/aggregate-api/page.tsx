@@ -122,6 +122,7 @@ export default function AggregateApiPage() {
   >({});
   const [loadingSecretId, setLoadingSecretId] = useState<string | null>(null);
   const [testingApiId, setTestingApiId] = useState<string | null>(null);
+  const [testingAll, setTestingAll] = useState(false);
   const [togglingApiId, setTogglingApiId] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, boolean>>(
     {},
@@ -245,6 +246,42 @@ export default function AggregateApiPage() {
     },
     onError: (error: unknown) => {
       toast.error(`${t("测试")} ${t("失败")}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+
+  const testAllMutation = useMutation({
+    mutationFn: async (apiIds: string[]) => {
+      const results = await Promise.allSettled(
+        apiIds.map((id) => accountClient.testAggregateApiConnection(id))
+      );
+      return results;
+    },
+    onMutate: async () => {
+      setTestingAll(true);
+    },
+    onSuccess: async (results) => {
+      const successCount = results.filter(
+        (r) => r.status === "fulfilled" && r.value.ok
+      ).length;
+      const failCount = results.length - successCount;
+
+      if (failCount === 0) {
+        toast.success(t("全部测试完成，{count} 个连通", { count: successCount }));
+      } else {
+        toast.warning(
+          t("测试完成：{success} 个连通，{fail} 个失败", {
+            success: successCount,
+            fail: failCount,
+          })
+        );
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["aggregate-apis"] });
+      setTestingAll(false);
+    },
+    onError: (error: unknown) => {
+      toast.error(`${t("批量测试失败")}: ${error instanceof Error ? error.message : String(error)}`);
     },
   });
 
@@ -578,6 +615,22 @@ export default function AggregateApiPage() {
                 <div className="text-xs text-muted-foreground">
                   {t("共")} {filteredAggregateApis.length} {t("条")}
                 </div>
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2"
+                  onClick={() => {
+                    const apiIds = filteredAggregateApis.map((api) => api.id);
+                    if (apiIds.length === 0) {
+                      toast.info(t("暂无可测试的聚合 API"));
+                      return;
+                    }
+                    testAllMutation.mutate(apiIds);
+                  }}
+                  disabled={!isServiceReady || testingAll || filteredAggregateApis.length === 0}
+                >
+                  <RefreshCw className={testingAll ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                  {t("测试全部")}
+                </Button>
                 <Button
                   className="h-10 gap-2 shadow-lg shadow-primary/20"
                   onClick={openCreateModal}
