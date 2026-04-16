@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clipboard, Database, ShieldCheck } from "lucide-react";
+import { Clipboard, Database, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -95,6 +95,8 @@ export function AggregateApiModal({
   const [key, setKey] = useState("");
   const [generatedKey, setGeneratedKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const queryClient = useQueryClient();
   const isServiceReady = canAccessManagementRpc && serviceStatus.connected;
   const unavailableMessage = canAccessManagementRpc
@@ -158,6 +160,8 @@ export function AggregateApiModal({
     setUsername("");
     setPassword("");
     setGeneratedKey("");
+    setShowKey(false);
+    setShowPassword(false);
   }, [aggregateApi, defaultSort, open]);
 
   /**
@@ -384,7 +388,12 @@ export function AggregateApiModal({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="aggregate-api-sort">{t("顺序值")}</Label>
+                    <span className="text-[11px] font-normal text-muted-foreground">
+                      ({t("值越小优先级越高")})
+                    </span>
+                  </div>
                   <Input
                     id="aggregate-api-sort"
                     type="number"
@@ -394,9 +403,6 @@ export function AggregateApiModal({
                     disabled={!isServiceReady}
                     onChange={(event) => setSortDraft(event.target.value)}
                   />
-                  <p className="text-[11px] leading-4 text-muted-foreground">
-                    {t("值越小越靠前，用于聚合 API 轮转优先级")}
-                  </p>
                 </div>
 
                 <div className="grid gap-2">
@@ -436,6 +442,8 @@ export function AggregateApiModal({
                       setKey("");
                       setUsername("");
                       setPassword("");
+                      setShowKey(false);
+                      setShowPassword(false);
                     }}
                   >
                     <SelectTrigger
@@ -474,14 +482,31 @@ export function AggregateApiModal({
               {authType === "apikey" ? (
                 <div className="grid gap-2">
                   <Label htmlFor="aggregate-api-key">{t("密钥")}</Label>
-                  <Input
-                    id="aggregate-api-key"
-                    type="password"
-                    placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入密钥")}
-                    value={key}
-                    disabled={!isServiceReady}
-                    onChange={(event) => setKey(event.target.value)}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="aggregate-api-key"
+                      type={showKey ? "text" : "password"}
+                      className="pr-10"
+                      placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入密钥")}
+                      value={key}
+                      disabled={!isServiceReady}
+                      onChange={(event) => setKey(event.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 py-2 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      onClick={() => setShowKey(!showKey)}
+                      disabled={!isServiceReady}
+                    >
+                      {showKey ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -497,14 +522,31 @@ export function AggregateApiModal({
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="aggregate-api-password">{t("密码")}</Label>
-                    <Input
-                      id="aggregate-api-password"
-                      type="password"
-                      placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入密码")}
-                      value={password}
-                      disabled={!isServiceReady}
-                      onChange={(event) => setPassword(event.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="aggregate-api-password"
+                        type={showPassword ? "text" : "password"}
+                        className="pr-10"
+                        placeholder={aggregateApi?.id ? t("留空则保持原值") : t("请输入密码")}
+                        value={password}
+                        disabled={!isServiceReady}
+                        onChange={(event) => setPassword(event.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 py-2 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                        onClick={() => setShowPassword(!showPassword)}
+                        disabled={!isServiceReady}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
