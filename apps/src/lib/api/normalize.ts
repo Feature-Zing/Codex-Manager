@@ -1219,6 +1219,14 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.responseTimeMs ??
       source.response_time_ms
   );
+  const firstResponseMs = toNullableNumber(
+    source.firstResponseMs ??
+      source.first_response_ms ??
+      source.firstTokenMs ??
+      source.first_token_ms ??
+      source.ttftMs ??
+      source.ttft_ms
+  );
 
   return {
     id,
@@ -1275,6 +1283,7 @@ export function normalizeRequestLog(item: unknown): RequestLog | null {
       source.estimatedCostUsd ?? source.estimated_cost_usd
     ),
     durationMs,
+    firstResponseMs,
     error: asString(source.error),
     createdAt,
   };

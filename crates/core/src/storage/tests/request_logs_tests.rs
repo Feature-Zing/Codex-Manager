@@ -119,6 +119,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
         aggregate_api_url: None,
         status_code: Some(200),
         duration_ms: Some(1234),
+        first_response_ms: Some(456),
         input_tokens: None,
         cached_input_tokens: None,
         output_tokens: None,
@@ -166,6 +167,7 @@ fn insert_request_log_with_token_stat_is_visible_via_join() {
     assert_eq!(row.request_type.as_deref(), Some("http"));
     assert_eq!(row.service_tier.as_deref(), Some("fast"));
     assert_eq!(row.effective_service_tier.as_deref(), Some("priority"));
+    assert_eq!(row.first_response_ms, Some(456));
     assert_eq!(
         row.response_adapter.as_deref(),
         Some("OpenAIChatCompletionsJson")
@@ -216,6 +218,7 @@ fn token_stat_failure_still_commits_request_log() {
         aggregate_api_url: None,
         status_code: Some(200),
         duration_ms: None,
+        first_response_ms: None,
         input_tokens: None,
         cached_input_tokens: None,
         output_tokens: None,
@@ -300,6 +303,7 @@ fn request_logs_support_backend_pagination_and_status_filters() {
                 aggregate_api_url: None,
                 status_code,
                 duration_ms: Some(200 + index),
+                first_response_ms: None,
                 input_tokens: None,
                 cached_input_tokens: None,
                 output_tokens: None,
@@ -381,6 +385,7 @@ fn request_logs_filtered_summary_aggregates_counts_and_tokens() {
                 aggregate_api_url: None,
                 status_code,
                 duration_ms: Some(900),
+                first_response_ms: None,
                 input_tokens: None,
                 cached_input_tokens: None,
                 output_tokens: None,

@@ -1548,17 +1548,22 @@ function LogsPageContent() {
     if (timePreset !== "today") {
       return;
     }
-    const todayRange = buildFixedTimePreset(
-      "today",
-      localDayRange.dayStartTs,
-      localDayRange.dayEndTs,
-    );
-    setStartTimeInput((current) =>
-      current === todayRange.startInput ? current : todayRange.startInput,
-    );
-    setEndTimeInput((current) =>
-      current === todayRange.endInput ? current : todayRange.endInput,
-    );
+    const frameId = window.requestAnimationFrame(() => {
+      const todayRange = buildFixedTimePreset(
+        "today",
+        localDayRange.dayStartTs,
+        localDayRange.dayEndTs,
+      );
+      setStartTimeInput((current) =>
+        current === todayRange.startInput ? current : todayRange.startInput,
+      );
+      setEndTimeInput((current) =>
+        current === todayRange.endInput ? current : todayRange.endInput,
+      );
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [localDayRange.dayEndTs, localDayRange.dayStartTs, timePreset]);
 
   const currentFilterLabel =
@@ -1874,8 +1879,8 @@ function LogsPageContent() {
                 <TableHead className="w-[92px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   {t("状态")}
                 </TableHead>
-                <TableHead className="w-[110px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {t("请求时长")}
+                <TableHead className="w-[128px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                  {t("用时 / 首响")}
                 </TableHead>
                 <TableHead className="w-[148px] px-4 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
                   {t("Token")}
@@ -1956,8 +1961,14 @@ function LogsPageContent() {
                     <TableCell className="px-4 py-3 align-top">
                       {getStatusBadge(resolveDisplayedStatusCode(log))}
                     </TableCell>
-                    <TableCell className="px-4 py-3 font-mono text-primary">
-                      {formatDuration(log.durationMs)}
+                    <TableCell className="px-4 py-3 align-top font-mono">
+                      <span
+                        className="text-xs text-primary"
+                        title={t("首响表示从请求开始到首个上游响应片段的耗时")}
+                      >
+                        {formatDuration(log.durationMs)}/
+                        {formatDuration(log.firstResponseMs)}
+                      </span>
                     </TableCell>
                     <TableCell className="px-4 py-3 align-top">
                       <div className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">

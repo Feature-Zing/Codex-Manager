@@ -23,6 +23,32 @@ pub(crate) struct PassthroughSseCollector {
     pub(crate) last_event_type: Option<String>,
 }
 
+fn elapsed_ms_since(started_at: Instant) -> i64 {
+    started_at.elapsed().as_millis().min(i64::MAX as u128) as i64
+}
+
+pub(super) fn mark_first_response_ms(
+    usage_collector: &Arc<Mutex<PassthroughSseCollector>>,
+    started_at: Instant,
+) {
+    if let Ok(mut collector) = usage_collector.lock() {
+        if collector.usage.first_response_ms.is_none() {
+            collector.usage.first_response_ms = Some(elapsed_ms_since(started_at));
+        }
+    }
+}
+
+pub(super) fn mark_first_response_ms_on_usage(
+    usage_collector: &Arc<Mutex<UpstreamResponseUsage>>,
+    started_at: Instant,
+) {
+    if let Ok(mut usage) = usage_collector.lock() {
+        if usage.first_response_ms.is_none() {
+            usage.first_response_ms = Some(elapsed_ms_since(started_at));
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SseKeepAliveFrame {
     Comment,

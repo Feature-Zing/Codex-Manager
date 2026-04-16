@@ -267,7 +267,12 @@ export function ModelCatalogModal({
 
   useEffect(() => {
     if (!open) return;
-    setDraft(buildDraft(model, nextSortIndex));
+    const frameId = window.requestAnimationFrame(() => {
+      setDraft(buildDraft(model, nextSortIndex));
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [model, nextSortIndex, open]);
 
   const title = useMemo(

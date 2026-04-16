@@ -260,6 +260,7 @@ fn persist_warmup_observability(
         upstream_url: Some(WARMUP_UPSTREAM_URL.to_string()),
         status_code: Some(status_code),
         duration_ms: Some(duration_ms.max(0)),
+        first_response_ms: None,
         error: error.map(str::to_string),
         created_at,
         ..RequestLog::default()

@@ -8,6 +8,7 @@ pub(crate) struct RequestLogUsage {
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
     pub reasoning_output_tokens: Option<i64>,
+    pub first_response_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -351,6 +352,7 @@ pub(crate) fn write_request_log_with_attempts(
     let total_tokens = normalize_token(usage.total_tokens);
     let reasoning_output_tokens = normalize_token(usage.reasoning_output_tokens);
     let duration_ms = normalize_duration_ms(duration_ms);
+    let first_response_ms = usage.first_response_ms.map(|value| value.max(0));
     let created_at = now_ts();
     let estimated_cost_usd =
         estimate_cost_usd(model, input_tokens, cached_input_tokens, output_tokens);
@@ -443,6 +445,7 @@ pub(crate) fn write_request_log_with_attempts(
             aggregate_api_url: trace_context.aggregate_api_url.map(str::to_string),
             status_code: status_code.map(|v| i64::from(v)),
             duration_ms,
+            first_response_ms,
             input_tokens: None,
             cached_input_tokens: None,
             output_tokens: None,

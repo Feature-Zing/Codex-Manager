@@ -61,6 +61,7 @@ struct PendingWsRequestLog {
     service_tier: Option<String>,
     effective_service_tier: Option<String>,
     started_at: Instant,
+    first_response_ms: Option<i64>,
 }
 
 struct WsSessionError {
@@ -464,7 +465,8 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
                             if retry_succeeded {
                                 continue;
                             }
-                            if let Some(pending) = pending_request.take() {
+                            if let Some(mut pending) = pending_request.take() {
+                                mark_ws_first_response(&mut pending);
                                 finalize_ws_request_log(
                                     &context,
                                     &pending.log,
@@ -483,7 +485,7 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
                             )
                             .await;
                         } else if let Some(pending) = pending_request.as_mut() {
-                            pending.forwarded_upstream_event = true;
+                            mark_ws_first_response(pending);
                         }
                         if socket
                             .send(Message::Text(text.to_string().into()))
@@ -496,7 +498,7 @@ async fn run_responses_websocket_session(mut socket: WebSocket, context: WsReque
                     }
                     Ok(UpstreamMessage::Binary(bytes)) => {
                         if let Some(pending) = pending_request.as_mut() {
-                            pending.forwarded_upstream_event = true;
+                            mark_ws_first_response(pending);
                         }
                         if socket.send(Message::Binary(bytes)).await.is_err() {
                             let _ = upstream.stream.close(None).await;
@@ -1103,7 +1105,22 @@ fn begin_ws_request_log(
         service_tier: prepared.service_tier.clone(),
         effective_service_tier: prepared.effective_service_tier.clone(),
         started_at: Instant::now(),
+        first_response_ms: None,
     }
+}
+
+fn mark_ws_first_response(pending: &mut PendingWsRequestState) {
+    if pending.log.first_response_ms.is_none() {
+        pending.log.first_response_ms = Some(
+            pending
+                .log
+                .started_at
+                .elapsed()
+                .as_millis()
+                .min(i64::MAX as u128) as i64,
+        );
+    }
+    pending.forwarded_upstream_event = true;
 }
 
 fn finalize_ws_request_log(
@@ -1112,12 +1129,15 @@ fn finalize_ws_request_log(
     account_id: Option<&str>,
     upstream_url: Option<&str>,
     status_code: u16,
-    usage: crate::gateway::RequestLogUsage,
+    mut usage: crate::gateway::RequestLogUsage,
     error: Option<String>,
 ) {
     let Some(storage) = open_storage() else {
         return;
     };
+    if usage.first_response_ms.is_none() {
+        usage.first_response_ms = pending.first_response_ms;
+    }
     crate::gateway::write_request_log(
         &storage,
         crate::gateway::RequestLogTraceContext {
@@ -1187,6 +1207,7 @@ async fn try_retry_ws_request_after_terminal(
     {
         Ok(()) => {
             pending.forwarded_upstream_event = false;
+            pending.log.first_response_ms = None;
             true
         }
         Err(err) => {
@@ -1402,6 +1423,7 @@ fn parse_ws_usage(value: &Value) -> crate::gateway::RequestLogUsage {
                     .and_then(|map| map.get("reasoning_output_tokens"))
                     .and_then(Value::as_i64)
             }),
+        first_response_ms: None,
     }
 }
 

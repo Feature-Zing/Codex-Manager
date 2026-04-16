@@ -91,16 +91,30 @@ export default function ModelsPage() {
 
   useEffect(() => {
     if (isPageActive) return;
-    setModalOpen(false);
-    setEditingSlug(null);
-    setSelectedSlugs([]);
-    setDeleteSlugs([]);
+    const frameId = window.requestAnimationFrame(() => {
+      setModalOpen(false);
+      setEditingSlug(null);
+      setSelectedSlugs([]);
+      setDeleteSlugs([]);
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [isPageActive]);
 
   useEffect(() => {
-    const availableSlugs = new Set(models.map((item) => item.slug));
-    setSelectedSlugs((current) => current.filter((slug) => availableSlugs.has(slug)));
-    setDeleteSlugs((current) => current.filter((slug) => availableSlugs.has(slug)));
+    const frameId = window.requestAnimationFrame(() => {
+      const availableSlugs = new Set(models.map((item) => item.slug));
+      setSelectedSlugs((current) =>
+        current.filter((slug) => availableSlugs.has(slug))
+      );
+      setDeleteSlugs((current) =>
+        current.filter((slug) => availableSlugs.has(slug))
+      );
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [models]);
 
   const editingModel = useMemo(

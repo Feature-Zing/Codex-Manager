@@ -142,6 +142,7 @@ pub(super) fn respond_with_upstream(
     allow_failover_for_deactivation: bool,
     trace_id: Option<&str>,
     fallback_model: Option<&str>,
+    request_started_at: std::time::Instant,
 ) -> Result<UpstreamResponseBridgeResult, String> {
     delivery::respond_with_upstream(
         request,
@@ -156,6 +157,7 @@ pub(super) fn respond_with_upstream(
         allow_failover_for_deactivation,
         trace_id,
         fallback_model,
+        request_started_at,
     )
 }
 pub(super) use stream_readers::{

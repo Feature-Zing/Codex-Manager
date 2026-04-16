@@ -213,6 +213,7 @@ pub(super) fn finalize_upstream_response(
         has_more_candidates,
         Some(trace_id),
         model_for_log,
+        started_at,
     )?;
     let bridge_output_text_len = bridge
         .usage
@@ -316,6 +317,7 @@ pub(super) fn finalize_upstream_response(
             output_tokens: usage.output_tokens,
             total_tokens: usage.total_tokens,
             reasoning_output_tokens: usage.reasoning_output_tokens,
+            first_response_ms: usage.first_response_ms,
         },
         final_error.as_deref(),
         started_at.elapsed().as_millis(),

@@ -1,8 +1,8 @@
 use super::{
     append_output_text, collect_output_text_from_event_fields, collect_response_output_text, json,
-    should_emit_keepalive, stream_idle_timed_out, stream_wait_timeout, Arc, Cursor, Map, Mutex,
-    Read, SseKeepAliveFrame, UpstreamResponseUsage, UpstreamSseFramePump, UpstreamSseFramePumpItem,
-    Value,
+    mark_first_response_ms_on_usage, should_emit_keepalive, stream_idle_timed_out,
+    stream_wait_timeout, Arc, Cursor, Map, Mutex, Read, SseKeepAliveFrame, UpstreamResponseUsage,
+    UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
 use std::time::Instant;
 
@@ -11,6 +11,7 @@ pub(crate) struct AnthropicSseReader {
     out_cursor: Cursor<Vec<u8>>,
     state: AnthropicSseState,
     usage_collector: Arc<Mutex<UpstreamResponseUsage>>,
+    request_started_at: Instant,
     last_upstream_activity: Instant,
     saw_upstream_frame: bool,
 }
@@ -48,6 +49,7 @@ impl AnthropicSseReader {
         upstream: reqwest::blocking::Response,
         usage_collector: Arc<Mutex<UpstreamResponseUsage>>,
         fallback_model: Option<&str>,
+        request_started_at: Instant,
     ) -> Self {
         let mut state = AnthropicSseState::default();
         state.model = fallback_model
@@ -59,6 +61,7 @@ impl AnthropicSseReader {
             out_cursor: Cursor::new(Vec::new()),
             state,
             usage_collector,
+            request_started_at,
             last_upstream_activity: Instant::now(),
             saw_upstream_frame: false,
         }
@@ -86,21 +89,46 @@ impl AnthropicSseReader {
                     self.saw_upstream_frame = true;
                     let mapped = self.process_sse_frame(&frame);
                     if !mapped.is_empty() {
+                        mark_first_response_ms_on_usage(
+                            &self.usage_collector,
+                            self.request_started_at,
+                        );
                         return Ok(mapped);
                     }
                     continue;
                 }
                 Ok(UpstreamSseFramePumpItem::Eof) => {
                     self.last_upstream_activity = Instant::now();
-                    return Ok(self.finish_stream());
+                    let finished = self.finish_stream();
+                    if !finished.is_empty() {
+                        mark_first_response_ms_on_usage(
+                            &self.usage_collector,
+                            self.request_started_at,
+                        );
+                    }
+                    return Ok(finished);
                 }
                 Ok(UpstreamSseFramePumpItem::Error(_err)) => {
                     self.last_upstream_activity = Instant::now();
-                    return Ok(self.finish_stream());
+                    let finished = self.finish_stream();
+                    if !finished.is_empty() {
+                        mark_first_response_ms_on_usage(
+                            &self.usage_collector,
+                            self.request_started_at,
+                        );
+                    }
+                    return Ok(finished);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if stream_idle_timed_out(self.last_upstream_activity) {
-                        return Ok(self.finish_stream());
+                        let finished = self.finish_stream();
+                        if !finished.is_empty() {
+                            mark_first_response_ms_on_usage(
+                                &self.usage_collector,
+                                self.request_started_at,
+                            );
+                        }
+                        return Ok(finished);
                     }
                     if should_emit_keepalive(self.saw_upstream_frame) {
                         return Ok(SseKeepAliveFrame::Anthropic.bytes().to_vec());
@@ -108,7 +136,14 @@ impl AnthropicSseReader {
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Ok(self.finish_stream());
+                    let finished = self.finish_stream();
+                    if !finished.is_empty() {
+                        mark_first_response_ms_on_usage(
+                            &self.usage_collector,
+                            self.request_started_at,
+                        );
+                    }
+                    return Ok(finished);
                 }
             }
         }

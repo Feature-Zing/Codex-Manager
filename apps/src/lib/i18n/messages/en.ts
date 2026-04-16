@@ -391,6 +391,10 @@ export const EN_MESSAGES: MessageCatalog = {
   "账号 / 密钥": "Account / Key",
   "模型 / 推理 / 等级": "Model / Reasoning / Tier",
   请求时长: "Duration",
+  "用时 / 首响": "Duration / First response",
+  首响: "First response",
+  "首响表示从请求开始到首个上游响应片段的耗时":
+    "Time from request start to the first upstream response chunk.",
   错误: "Error",
   "服务未连接，无法获取日志": "Service disconnected, logs unavailable",
   暂无请求日志: "No request logs",

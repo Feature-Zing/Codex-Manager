@@ -928,6 +928,7 @@ pub(in super::super) fn proxy_aggregate_request(
                 false,
                 Some(trace_id),
                 None,
+                started_at,
             )?;
             let bridge_output_text_len = bridge
                 .usage
@@ -1016,6 +1017,7 @@ pub(in super::super) fn proxy_aggregate_request(
                     output_tokens: usage.output_tokens,
                     total_tokens: usage.total_tokens,
                     reasoning_output_tokens: usage.reasoning_output_tokens,
+                    first_response_ms: usage.first_response_ms,
                 },
                 final_error.as_deref(),
                 Some(started_at.elapsed().as_millis()),

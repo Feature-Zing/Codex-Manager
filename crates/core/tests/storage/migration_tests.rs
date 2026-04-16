@@ -273,6 +273,9 @@ fn init_tracks_schema_migrations_and_is_idempotent() {
         .has_column("request_logs", "duration_ms")
         .expect("check request_logs.duration_ms"));
     assert!(storage
+        .has_column("request_logs", "first_response_ms")
+        .expect("check request_logs.first_response_ms"));
+    assert!(storage
         .has_column("request_logs", "initial_account_id")
         .expect("check request_logs.initial_account_id"));
     assert!(storage

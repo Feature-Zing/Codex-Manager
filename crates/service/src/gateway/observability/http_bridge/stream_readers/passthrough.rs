@@ -1,6 +1,6 @@
 use super::{
-    classify_upstream_stream_read_error, inspect_sse_frame_for_protocol, merge_usage,
-    should_emit_keepalive, stream_idle_timed_out, stream_idle_timeout_message,
+    classify_upstream_stream_read_error, inspect_sse_frame_for_protocol, mark_first_response_ms,
+    merge_usage, should_emit_keepalive, stream_idle_timed_out, stream_idle_timeout_message,
     stream_reader_disconnected_message, stream_wait_timeout,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Mutex, PassthroughSseCollector,
     PassthroughSseProtocol, Read, SseKeepAliveFrame, SseTerminal, UpstreamSseFramePump,
@@ -15,6 +15,7 @@ pub(crate) struct PassthroughSseUsageReader {
     usage_collector: Arc<Mutex<PassthroughSseCollector>>,
     keepalive_frame: SseKeepAliveFrame,
     protocol: PassthroughSseProtocol,
+    request_started_at: Instant,
     last_upstream_activity: Instant,
     saw_upstream_frame: bool,
     finished: bool,
@@ -37,6 +38,7 @@ impl PassthroughSseUsageReader {
         usage_collector: Arc<Mutex<PassthroughSseCollector>>,
         keepalive_frame: SseKeepAliveFrame,
         protocol: PassthroughSseProtocol,
+        request_started_at: Instant,
     ) -> Self {
         Self {
             upstream: UpstreamSseFramePump::new(upstream),
@@ -44,6 +46,7 @@ impl PassthroughSseUsageReader {
             usage_collector,
             keepalive_frame,
             protocol,
+            request_started_at,
             last_upstream_activity: Instant::now(),
             saw_upstream_frame: false,
             finished: false,
@@ -121,6 +124,7 @@ impl PassthroughSseUsageReader {
                     self.last_upstream_activity = Instant::now();
                     self.saw_upstream_frame = true;
                     self.update_usage_from_frame(&frame);
+                    mark_first_response_ms(&self.usage_collector, self.request_started_at);
                     return Ok(frame.concat().into_bytes());
                 }
                 Ok(UpstreamSseFramePumpItem::Eof) => {

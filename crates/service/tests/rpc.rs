@@ -1789,6 +1789,7 @@ fn rpc_requestlog_list_and_summary_support_pagination() {
                 aggregate_api_url: None,
                 status_code,
                 duration_ms: Some(500 + index),
+                first_response_ms: None,
                 input_tokens: None,
                 cached_input_tokens: None,
                 output_tokens: None,

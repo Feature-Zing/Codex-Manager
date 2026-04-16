@@ -172,6 +172,7 @@ fn request_log_summary_serialization_includes_trace_route_fields() {
         "requestPath",
         "upstreamUrl",
         "durationMs",
+        "firstResponseMs",
     ] {
         assert!(obj.contains_key(key), "missing key: {key}");
     }

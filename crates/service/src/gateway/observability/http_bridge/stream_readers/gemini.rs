@@ -1,7 +1,7 @@
 use super::{
     append_output_text, classify_upstream_stream_read_error, collect_output_text_from_event_fields,
-    json, mark_collector_terminal_success, stream_idle_timed_out, stream_idle_timeout_message,
-    stream_reader_disconnected_message, stream_wait_timeout,
+    json, mark_collector_terminal_success, mark_first_response_ms, stream_idle_timed_out,
+    stream_idle_timeout_message, stream_reader_disconnected_message, stream_wait_timeout,
     upstream_hint_or_stream_incomplete_message, Arc, Cursor, Map, Mutex, PassthroughSseCollector,
     Read, ToolNameRestoreMap, UpstreamSseFramePump, UpstreamSseFramePumpItem, Value,
 };
@@ -17,6 +17,7 @@ pub(crate) struct GeminiSseReader {
     tool_name_restore_map: Option<ToolNameRestoreMap>,
     output_mode: GeminiStreamOutputMode,
     wrap_response_envelope: bool,
+    request_started_at: Instant,
     last_upstream_activity: Instant,
 }
 
@@ -50,6 +51,7 @@ impl GeminiSseReader {
         tool_name_restore_map: Option<ToolNameRestoreMap>,
         output_mode: GeminiStreamOutputMode,
         wrap_response_envelope: bool,
+        request_started_at: Instant,
     ) -> Self {
         Self {
             upstream: UpstreamSseFramePump::new(upstream),
@@ -59,6 +61,7 @@ impl GeminiSseReader {
             tool_name_restore_map,
             output_mode,
             wrap_response_envelope,
+            request_started_at,
             last_upstream_activity: Instant::now(),
         }
     }
@@ -73,6 +76,7 @@ impl GeminiSseReader {
                     self.last_upstream_activity = Instant::now();
                     let mapped = self.process_sse_frame(&frame);
                     if !mapped.is_empty() {
+                        mark_first_response_ms(&self.usage_collector, self.request_started_at);
                         return Ok(mapped);
                     }
                     continue;
@@ -80,23 +84,39 @@ impl GeminiSseReader {
                 Ok(UpstreamSseFramePumpItem::Eof) => {
                     self.last_upstream_activity = Instant::now();
                     self.mark_stream_incomplete_if_needed();
-                    return Ok(self.finish_stream());
+                    let finished = self.finish_stream();
+                    if !finished.is_empty() {
+                        mark_first_response_ms(&self.usage_collector, self.request_started_at);
+                    }
+                    return Ok(finished);
                 }
                 Ok(UpstreamSseFramePumpItem::Error(err)) => {
                     self.last_upstream_activity = Instant::now();
                     self.mark_stream_read_error(classify_upstream_stream_read_error(&err));
-                    return Ok(self.finish_stream());
+                    let finished = self.finish_stream();
+                    if !finished.is_empty() {
+                        mark_first_response_ms(&self.usage_collector, self.request_started_at);
+                    }
+                    return Ok(finished);
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if stream_idle_timed_out(self.last_upstream_activity) {
                         self.mark_stream_read_error(stream_idle_timeout_message());
-                        return Ok(self.finish_stream());
+                        let finished = self.finish_stream();
+                        if !finished.is_empty() {
+                            mark_first_response_ms(&self.usage_collector, self.request_started_at);
+                        }
+                        return Ok(finished);
                     }
                     continue;
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     self.mark_stream_read_error(stream_reader_disconnected_message());
-                    return Ok(self.finish_stream());
+                    let finished = self.finish_stream();
+                    if !finished.is_empty() {
+                        mark_first_response_ms(&self.usage_collector, self.request_started_at);
+                    }
+                    return Ok(finished);
                 }
             }
         }

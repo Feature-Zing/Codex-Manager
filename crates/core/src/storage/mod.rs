@@ -129,6 +129,7 @@ pub struct RequestLog {
     pub aggregate_api_url: Option<String>,
     pub status_code: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub first_response_ms: Option<i64>,
     pub input_tokens: Option<i64>,
     pub cached_input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -646,6 +647,11 @@ impl Storage {
             "050_api_key_profiles_drop_azure_protocol",
             include_str!("../../migrations/050_api_key_profiles_drop_azure_protocol.sql"),
         )?;
+        self.apply_sql_or_compat_migration(
+            "051_request_logs_first_response_ms",
+            include_str!("../../migrations/051_request_logs_first_response_ms.sql"),
+            |s| s.ensure_request_log_first_response_column(),
+        )?;
         self.ensure_api_key_rotation_columns()?;
         self.ensure_aggregate_apis_table()?;
         self.ensure_aggregate_api_secrets_table()?;
@@ -653,6 +659,7 @@ impl Storage {
         self.ensure_gateway_error_logs_table()?;
         self.ensure_request_log_request_type_and_service_tier_columns()?;
         self.ensure_request_log_effective_service_tier_column()?;
+        self.ensure_request_log_first_response_column()?;
         self.ensure_model_catalog_models_table()?;
         Ok(())
     }
